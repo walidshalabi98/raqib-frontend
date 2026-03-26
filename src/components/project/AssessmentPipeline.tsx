@@ -1,5 +1,8 @@
-import { mockAssessments, ASSESSMENT_STAGES, METHOD_LABELS, Method } from "@/data/mockData";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/services/api";
+import { ASSESSMENT_STAGES, METHOD_LABELS, Method } from "@/data/mockData";
 import { MethodPill } from "@/components/common/MethodPill";
+import { Loader2 } from "lucide-react";
 
 const stageLabels: Record<string, string> = {
   requested: "Requested",
@@ -16,31 +19,41 @@ function getStageIndex(status: string): number {
   return map[status] ?? 0;
 }
 
-export function AssessmentPipeline() {
+export function AssessmentPipeline({ projectId }: { projectId: string }) {
+  const { data: assessments = [], isLoading } = useQuery({
+    queryKey: ['assessments', projectId],
+    queryFn: () => api.getAssessments(projectId),
+  });
+
+  if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="h-5 w-5 animate-spin" /></div>;
+
+  if (assessments.length === 0) {
+    return <div className="card-surface p-8 text-center text-muted-foreground">No assessments yet.</div>;
+  }
+
   return (
     <div className="space-y-4">
-      {mockAssessments.map(a => {
+      {assessments.map((a: any) => {
         const activeIdx = getStageIndex(a.status);
+        const methods: string[] = Array.isArray(a.methodsIncluded) ? a.methodsIncluded : [];
         return (
           <div key={a.id} className="card-surface p-5">
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="text-sm font-semibold capitalize">{a.type.replace("_", " ")}</h3>
+                <h3 className="text-sm font-semibold capitalize">{(a.type || '').replace("_", " ")}</h3>
                 <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                  {a.methods_included.map(m => <MethodPill key={m} method={m} size="xs" />)}
+                  {methods.map((m: string) => <MethodPill key={m} method={m as Method} size="xs" />)}
                 </div>
               </div>
               <div className="text-right text-xs text-muted-foreground">
-                {a.sample_size && <p>Sample: {a.sample_size}</p>}
-                <p className="font-medium text-foreground">${a.price_usd.toLocaleString()}</p>
+                {a.sampleSize && <p>Sample: {a.sampleSize}</p>}
+                {a.priceUsd && <p className="font-medium text-foreground">${Number(a.priceUsd).toLocaleString()}</p>}
               </div>
             </div>
-            {/* Pipeline */}
             <div className="flex items-center gap-0 overflow-x-auto pb-1">
               {ASSESSMENT_STAGES.map((stage, i) => {
                 const isCompleted = i < activeIdx;
                 const isActive = i === activeIdx;
-                const isFuture = i > activeIdx;
                 return (
                   <div key={stage} className="flex items-center">
                     <div className="flex flex-col items-center">

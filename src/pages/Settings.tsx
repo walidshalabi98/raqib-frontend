@@ -1,15 +1,66 @@
 import { useState } from "react";
-import { mockOrg, mockUsers } from "@/data/mockData";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/contexts/AuthContext";
+import { api } from "@/services/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Upload } from "lucide-react";
+import { Plus, Upload, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 export default function SettingsPage() {
-  const [orgName, setOrgName] = useState(mockOrg.name);
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [orgName, setOrgName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [inviteForm, setInviteForm] = useState({ fullName: "", email: "", role: "me_officer" });
+
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => api.getUsers(),
+  });
+
+  // Set orgName from user context
+  if (!orgName && user?.organization?.name) {
+    setOrgName(user.organization.name);
+  }
+
+  const handleSaveOrg = async () => {
+    if (!user?.organizationId) return;
+    setSaving(true);
+    try {
+      await api.updateOrganization(user.organizationId, { name: orgName });
+      toast.success("Organization updated successfully");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update organization");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleInvite = async () => {
+    if (!inviteForm.fullName || !inviteForm.email) {
+      toast.error("Please fill in name and email");
+      return;
+    }
+    setInviting(true);
+    try {
+      await api.inviteUser(inviteForm);
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setInviteOpen(false);
+      setInviteForm({ fullName: "", email: "", role: "me_officer" });
+      toast.success("User invited successfully");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to invite user");
+    } finally {
+      setInviting(false);
+    }
+  };
 
   return (
     <div className="max-w-3xl space-y-8 animate-fade-in">
@@ -25,7 +76,7 @@ export default function SettingsPage() {
           </div>
           <div className="space-y-1.5">
             <Label>Contact Email</Label>
-            <Input value={mockOrg.contact_email} readOnly className="rounded-lg" />
+            <Input value={user?.email || ''} readOnly className="rounded-lg" />
           </div>
         </div>
         <div>
@@ -35,14 +86,16 @@ export default function SettingsPage() {
             <p className="text-xs text-muted-foreground">Click to upload logo</p>
           </div>
         </div>
-        <Button size="sm">Save Changes</Button>
+        <Button size="sm" onClick={handleSaveOrg} disabled={saving}>
+          {saving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...</> : "Save Changes"}
+        </Button>
       </section>
 
       {/* Users */}
       <section className="card-surface p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Team Members</h2>
-          <Dialog>
+          <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
             <DialogTrigger asChild>
               <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Invite User</Button>
             </DialogTrigger>
@@ -50,12 +103,16 @@ export default function SettingsPage() {
               <DialogHeader><DialogTitle>Invite User</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-2">
                 <div className="space-y-1.5">
+                  <Label>Full Name</Label>
+                  <Input value={inviteForm.fullName} onChange={e => setInviteForm(f => ({ ...f, fullName: e.target.value }))} placeholder="John Doe" className="rounded-lg" />
+                </div>
+                <div className="space-y-1.5">
                   <Label>Email</Label>
-                  <Input placeholder="user@example.com" className="rounded-lg" />
+                  <Input value={inviteForm.email} onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))} placeholder="user@example.com" className="rounded-lg" />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Role</Label>
-                  <Select defaultValue="me_officer">
+                  <Select value={inviteForm.role} onValueChange={v => setInviteForm(f => ({ ...f, role: v }))}>
                     <SelectTrigger className="rounded-lg"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="org_admin">Admin</SelectItem>
@@ -64,39 +121,45 @@ export default function SettingsPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button className="w-full">Send Invitation</Button>
+                <Button className="w-full" onClick={handleInvite} disabled={inviting}>
+                  {inviting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending...</> : "Send Invitation"}
+                </Button>
               </div>
             </DialogContent>
           </Dialog>
         </div>
-        <div className="card-surface overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-secondary/50">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Email</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Role</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {mockUsers.map(u => (
-                <tr key={u.id} className="hover:bg-secondary/30">
-                  <td className="px-4 py-3 font-medium">{u.name}</td>
-                  <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{u.email}</td>
-                  <td className="px-4 py-3">
-                    <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-secondary text-secondary-foreground capitalize">
-                      {u.role.replace("_", " ")}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Button variant="ghost" size="sm">Edit</Button>
-                  </td>
+        {isLoading ? (
+          <div className="flex justify-center p-4"><Loader2 className="h-5 w-5 animate-spin" /></div>
+        ) : (
+          <div className="card-surface overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-secondary/50">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Email</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Role</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y">
+                {users.map((u: any) => (
+                  <tr key={u.id} className="hover:bg-secondary/30">
+                    <td className="px-4 py-3 font-medium">{u.fullName}</td>
+                    <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{u.email}</td>
+                    <td className="px-4 py-3">
+                      <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-secondary text-secondary-foreground capitalize">
+                        {(u.role || '').replace("_", " ")}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button variant="ghost" size="sm">Edit</Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {/* Notifications */}

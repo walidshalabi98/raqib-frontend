@@ -1,8 +1,23 @@
 import { Link } from "react-router-dom";
-import { mockProjects, SECTOR_LABELS } from "@/data/mockData";
+import { SECTOR_LABELS } from "@/data/mockData";
 import { StatusDot } from "@/components/common/StatusDot";
 
-export function ProjectCard({ project }: { project: typeof mockProjects[0] }) {
+interface ProjectCardProps {
+  project: {
+    id: string;
+    name: string;
+    sector: string;
+    donor: string;
+    status: string;
+    geographic_scope?: string;
+    indicators_on_track: number;
+    indicators_at_risk: number;
+    indicators_off_track: number;
+    total_indicators: number;
+  };
+}
+
+export function ProjectCard({ project }: ProjectCardProps) {
   const onTrackPct = project.total_indicators > 0
     ? Math.round((project.indicators_on_track / project.total_indicators) * 100)
     : 0;

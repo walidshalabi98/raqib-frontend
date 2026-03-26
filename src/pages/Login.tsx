@@ -1,18 +1,38 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import { RaqibLogo } from "@/components/common/RaqibLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Loader2 } from "lucide-react";
 
 export default function Login() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("walid@pyda.ps");
-  const [password, setPassword] = useState("••••••••");
+  const { login, isAuthenticated } = useAuth();
+  const [email, setEmail] = useState("admin@momentumlabs.ps");
+  const [password, setPassword] = useState("admin123");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  // If already logged in, redirect
+  if (isAuthenticated) {
     navigate("/dashboard");
+    return null;
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      await login(email, password);
+      navigate("/dashboard");
+    } catch (err: any) {
+      setError(err.message || "Invalid email or password");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -30,8 +50,9 @@ export default function Login() {
             <Label htmlFor="password">Password</Label>
             <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="rounded-lg" />
           </div>
-          <Button type="submit" className="w-full rounded-lg">
-            Sign in
+          {error && <p className="text-sm text-red-500">{error}</p>}
+          <Button type="submit" className="w-full rounded-lg" disabled={loading}>
+            {loading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Signing in...</> : "Sign in"}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             <a href="#" className="text-primary hover:underline">Forgot password?</a>
