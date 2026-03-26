@@ -15,10 +15,29 @@ import { QualitativeCards } from "@/components/project/QualitativeCards";
 import DocumentManager from "@/components/project/DocumentManager";
 import RiskAlerts from "@/components/project/RiskAlerts";
 import ExportPanel from "@/components/project/ExportPanel";
-import { ArrowLeft, Download, ClipboardCheck, BarChart3, Upload, Loader2 } from "lucide-react";
-import { lazy, Suspense } from "react";
+import { ArrowLeft, Download, ClipboardCheck, BarChart3, Upload, Loader2, MapPin } from "lucide-react";
+import { lazy, Suspense, Component, type ReactNode } from "react";
 
 const PalestineMap = lazy(() => import("@/components/project/PalestineMap"));
+
+// Error boundary to prevent map crashes from breaking the whole page
+class MapErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="h-[350px] flex items-center justify-center bg-muted/30 rounded-lg border">
+          <div className="text-center text-muted-foreground">
+            <MapPin className="h-8 w-8 mx-auto mb-2" />
+            <p className="text-sm">Map could not be loaded</p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const timelineStages = ["Setup", "Baseline", "Implementation", "Midterm", "Endline", "Complete"];
 
@@ -132,17 +151,19 @@ export default function ProjectDetail() {
           {project.geographicScope && (
             <div className="card-surface p-5">
               <h3 className="text-sm font-semibold mb-3">Geographic Coverage</h3>
-              <Suspense fallback={<div className="h-[350px] flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
-                <PalestineMap
-                  data={[{
-                    location: project.geographicScope,
-                    value: project._count?.dataPoints || 10,
-                    label: "Data Points",
-                    status: "on_track"
-                  }]}
-                  height="350px"
-                />
-              </Suspense>
+              <MapErrorBoundary>
+                <Suspense fallback={<div className="h-[350px] flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
+                  <PalestineMap
+                    data={[{
+                      location: project.geographicScope,
+                      value: project._count?.dataPoints || 10,
+                      label: "Data Points",
+                      status: "on_track"
+                    }]}
+                    height="350px"
+                  />
+                </Suspense>
+              </MapErrorBoundary>
             </div>
           )}
 
