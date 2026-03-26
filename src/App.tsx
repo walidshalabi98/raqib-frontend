@@ -14,6 +14,7 @@ import AIWizard from "./pages/AIWizard";
 import Assessments from "./pages/Assessments";
 import Reports from "./pages/Reports";
 import SettingsPage from "./pages/Settings";
+import Beneficiaries from "./pages/Beneficiaries";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,6 +33,7 @@ const App = () => (
               <Route path="/projects" element={<Projects />} />
               <Route path="/projects/:id" element={<ProjectDetail />} />
               <Route path="/wizard/:id" element={<AIWizard />} />
+              <Route path="/beneficiaries" element={<Beneficiaries />} />
               <Route path="/assessments" element={<Assessments />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<SettingsPage />} />

@@ -264,6 +264,47 @@ class ApiClient {
   async inviteUser(data: any) {
     return this.request('/users/invite', { method: 'POST', body: JSON.stringify(data) });
   }
+
+  // Beneficiaries
+  async getBeneficiaries(projectId: string) {
+    return this.request(`/projects/${projectId}/beneficiaries`);
+  }
+  async createBeneficiary(projectId: string, data: any) {
+    return this.request(`/projects/${projectId}/beneficiaries`, { method: 'POST', body: JSON.stringify(data) });
+  }
+  async getBeneficiary(id: string) {
+    return this.request(`/beneficiaries/${id}`);
+  }
+  async updateBeneficiary(id: string, data: any) {
+    return this.request(`/beneficiaries/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+  }
+  async addBeneficiaryService(beneficiaryId: string, data: any) {
+    return this.request(`/beneficiaries/${beneficiaryId}/services`, { method: 'POST', body: JSON.stringify(data) });
+  }
+  async getBeneficiaryStats(projectId: string) {
+    return this.request(`/projects/${projectId}/beneficiaries/stats`);
+  }
+
+  // Risk Analysis
+  async getRiskAnalysis(projectId: string) {
+    return this.request(`/dashboard/projects/${projectId}/risks`);
+  }
+
+  // Exports
+  async exportIndicators(projectId: string) {
+    return this.request(`/projects/${projectId}/export/indicators`);
+  }
+  async exportBeneficiaries(projectId: string) {
+    return this.request(`/projects/${projectId}/export/beneficiaries`);
+  }
+  async exportFullProject(projectId: string) {
+    return this.request(`/projects/${projectId}/export/full`);
+  }
+
+  // Report detail
+  async getReport(reportId: string) {
+    return this.request(`/reports/${reportId}`);
+  }
 }
 
 export const api = new ApiClient();

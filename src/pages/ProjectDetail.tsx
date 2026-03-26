@@ -5,16 +5,20 @@ import { SECTOR_LABELS } from "@/data/mockData";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { MetricCard } from "@/components/common/MetricCard";
-import { StatusDot } from "@/components/common/StatusDot";
 import { IndicatorTable } from "@/components/project/IndicatorTable";
 import { KPIScorecard } from "@/components/project/KPIScorecard";
 import { TrendChart } from "@/components/project/TrendChart";
 import { AssessmentPipeline } from "@/components/project/AssessmentPipeline";
 import { AssessmentModal } from "@/components/project/AssessmentModal";
 import { ReportsList } from "@/components/project/ReportsList";
-import { DocumentUpload } from "@/components/project/DocumentUpload";
 import { QualitativeCards } from "@/components/project/QualitativeCards";
+import DocumentManager from "@/components/project/DocumentManager";
+import RiskAlerts from "@/components/project/RiskAlerts";
+import ExportPanel from "@/components/project/ExportPanel";
 import { ArrowLeft, Download, ClipboardCheck, BarChart3, Upload, Loader2 } from "lucide-react";
+import { lazy, Suspense } from "react";
+
+const PalestineMap = lazy(() => import("@/components/project/PalestineMap"));
 
 const timelineStages = ["Setup", "Baseline", "Implementation", "Midterm", "Endline", "Complete"];
 
@@ -48,6 +52,18 @@ export default function ProjectDetail() {
   const atRisk = indicators.filter((i: any) => i.status === "at_risk").length;
   const offTrack = indicators.filter((i: any) => i.status === "off_track").length;
 
+  const tabs = [
+    { label: "Overview", value: "overview" },
+    { label: "M&E Framework", value: "me-framework" },
+    { label: "Dashboard", value: "dashboard" },
+    { label: "Risk Alerts", value: "risks" },
+    { label: "Assessments", value: "assessments" },
+    { label: "Reports", value: "reports" },
+    { label: "Documents", value: "documents" },
+    { label: "Qualitative", value: "qualitative" },
+    { label: "Export", value: "export" },
+  ];
+
   return (
     <div className="space-y-5 animate-fade-in">
       <div className="flex items-center gap-3">
@@ -62,26 +78,18 @@ export default function ProjectDetail() {
 
       <Tabs defaultValue="overview" className="w-full">
         <TabsList className="w-full justify-start overflow-x-auto bg-transparent border-b rounded-none h-auto p-0 gap-0">
-          {[
-            { label: "Overview", value: "overview" },
-            { label: "M&E Framework", value: "me-framework" },
-            { label: "Dashboard", value: "dashboard" },
-            { label: "Assessments", value: "assessments" },
-            { label: "Reports", value: "reports" },
-            { label: "Documents", value: "documents" },
-            { label: "Qualitative", value: "qualitative" },
-          ].map(tab => (
+          {tabs.map(tab => (
             <TabsTrigger
               key={tab.value}
               value={tab.value}
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary px-4 py-2.5 text-sm"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary px-4 py-2.5 text-sm whitespace-nowrap"
             >
               {tab.label}
             </TabsTrigger>
           ))}
         </TabsList>
 
-        {/* Tab 1: Overview */}
+        {/* Overview */}
         <TabsContent value="overview" className="space-y-5 mt-5">
           <div className="grid lg:grid-cols-3 gap-4">
             <div className="lg:col-span-2 card-surface p-5">
@@ -120,6 +128,24 @@ export default function ProjectDetail() {
             </div>
           </div>
 
+          {/* Map */}
+          {project.geographicScope && (
+            <div className="card-surface p-5">
+              <h3 className="text-sm font-semibold mb-3">Geographic Coverage</h3>
+              <Suspense fallback={<div className="h-[350px] flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
+                <PalestineMap
+                  data={[{
+                    location: project.geographicScope,
+                    value: project._count?.dataPoints || 10,
+                    label: "Data Points",
+                    status: "on_track"
+                  }]}
+                  height="350px"
+                />
+              </Suspense>
+            </div>
+          )}
+
           <div className="flex gap-3 flex-wrap">
             <Button variant="outline" size="sm"><BarChart3 className="h-4 w-4 mr-1.5" /> View Dashboard</Button>
             <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1.5" /> Download Report</Button>
@@ -127,7 +153,7 @@ export default function ProjectDetail() {
           </div>
         </TabsContent>
 
-        {/* Tab 2: M&E Framework */}
+        {/* M&E Framework */}
         <TabsContent value="me-framework" className="mt-5">
           {isSetup ? (
             <div className="card-surface p-8 text-center">
@@ -143,33 +169,41 @@ export default function ProjectDetail() {
           )}
         </TabsContent>
 
-        {/* Tab 3: Dashboard */}
+        {/* Dashboard */}
         <TabsContent value="dashboard" className="space-y-5 mt-5">
           <KPIScorecard projectId={id!} />
           <TrendChart projectId={id!} />
         </TabsContent>
 
-        {/* Tab 4: Assessments */}
+        {/* Risk Alerts */}
+        <TabsContent value="risks" className="mt-5">
+          <RiskAlerts projectId={id!} />
+        </TabsContent>
+
+        {/* Assessments */}
         <TabsContent value="assessments" className="space-y-4 mt-5">
-          <div className="flex justify-end">
-            <AssessmentModal />
-          </div>
+          <div className="flex justify-end"><AssessmentModal /></div>
           <AssessmentPipeline projectId={id!} />
         </TabsContent>
 
-        {/* Tab 5: Reports */}
+        {/* Reports */}
         <TabsContent value="reports" className="mt-5">
           <ReportsList projectId={id!} />
         </TabsContent>
 
-        {/* Tab 6: Documents */}
+        {/* Documents */}
         <TabsContent value="documents" className="mt-5">
-          <DocumentUpload projectId={id!} />
+          <DocumentManager projectId={id!} />
         </TabsContent>
 
-        {/* Tab 7: Qualitative */}
+        {/* Qualitative */}
         <TabsContent value="qualitative" className="mt-5">
           <QualitativeCards projectId={id!} />
+        </TabsContent>
+
+        {/* Export */}
+        <TabsContent value="export" className="mt-5">
+          <ExportPanel projectId={id!} />
         </TabsContent>
       </Tabs>
     </div>

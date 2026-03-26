@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, FolderKanban, ClipboardCheck, FileText, Settings, Menu, X } from "lucide-react";
+import { LayoutDashboard, FolderKanban, ClipboardCheck, FileText, Settings, Menu, X, Users } from "lucide-react";
 import { RaqibLogo } from "@/components/common/RaqibLogo";
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
   { label: "Projects", icon: FolderKanban, path: "/projects" },
+  { label: "Beneficiaries", icon: Users, path: "/beneficiaries" },
   { label: "Assessments", icon: ClipboardCheck, path: "/assessments" },
   { label: "Reports", icon: FileText, path: "/reports" },
   { label: "Settings", icon: Settings, path: "/settings" },
