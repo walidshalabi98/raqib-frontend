@@ -147,25 +147,23 @@ export default function ProjectDetail() {
             </div>
           </div>
 
-          {/* Map */}
-          {project.geographicScope && (
-            <div className="card-surface p-5">
-              <h3 className="text-sm font-semibold mb-3">Geographic Coverage</h3>
-              <MapErrorBoundary>
-                <Suspense fallback={<div className="h-[350px] flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
-                  <PalestineMap
-                    data={[{
-                      location: project.geographicScope,
-                      value: project._count?.dataPoints || 10,
-                      label: "Data Points",
-                      status: "on_track"
-                    }]}
-                    height="350px"
-                  />
-                </Suspense>
-              </MapErrorBoundary>
-            </div>
-          )}
+          {/* Map — always show, use project location or default to Palestine */}
+          <div className="card-surface p-5">
+            <h3 className="text-sm font-semibold mb-3">Geographic Coverage</h3>
+            <MapErrorBoundary>
+              <Suspense fallback={<div className="h-[350px] flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
+                <PalestineMap
+                  data={[{
+                    location: project.geographicScope || "Palestine",
+                    value: project._count?.dataPoints || 1,
+                    label: project.geographicScope ? "Data Points" : "Project Area",
+                    status: project.status === "active" ? "on_track" : "not_started"
+                  }]}
+                  height="350px"
+                />
+              </Suspense>
+            </MapErrorBoundary>
+          </div>
 
           <div className="flex gap-3 flex-wrap">
             <Button variant="outline" size="sm"><BarChart3 className="h-4 w-4 mr-1.5" /> View Dashboard</Button>
@@ -175,19 +173,19 @@ export default function ProjectDetail() {
         </TabsContent>
 
         {/* M&E Framework */}
-        <TabsContent value="me-framework" className="mt-5">
-          {isSetup ? (
-            <div className="card-surface p-8 text-center">
+        <TabsContent value="me-framework" className="space-y-4 mt-5">
+          {isSetup && (
+            <div className="card-surface p-6 text-center">
               <Upload className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <h3 className="text-lg font-semibold mb-2">Generate M&E Framework</h3>
-              <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">Upload your project documents and our AI will generate a complete M&E framework with indicators, methods, and targets.</p>
+              <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">Upload your project documents and our AI will generate a complete M&E framework with indicators, timelines, and targets.</p>
               <Link to={`/wizard/${project.id}`}>
-                <Button>Generate Framework</Button>
+                <Button>Generate with AI</Button>
               </Link>
+              <p className="text-xs text-muted-foreground mt-3">Or create a manual framework below</p>
             </div>
-          ) : (
-            <IndicatorTable projectId={id!} />
           )}
+          <IndicatorTable projectId={id!} />
         </TabsContent>
 
         {/* Dashboard */}

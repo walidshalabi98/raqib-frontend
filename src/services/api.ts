@@ -155,6 +155,14 @@ class ApiClient {
     return this.request(`/frameworks/${frameworkId}/approve`, { method: 'PATCH' });
   }
 
+  async createManualFramework(projectId: string, name: string) {
+    return this.request(`/projects/${projectId}/framework/manual`, { method: 'POST', body: JSON.stringify({ name }) });
+  }
+
+  async addIndicatorToFramework(frameworkId: string, data: any) {
+    return this.request(`/frameworks/${frameworkId}/indicators`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
   // Indicators
   async updateIndicator(id: string, data: any) {
     return this.request(`/indicators/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
