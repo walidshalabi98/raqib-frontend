@@ -234,6 +234,34 @@ class ApiClient {
     return this.request(`/qualitative/${entryId}/code`, { method: 'POST' });
   }
 
+  async uploadQualitativeDocument(projectId: string, file: File, metadata: any) {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (metadata.entryType) formData.append('entryType', metadata.entryType);
+    if (metadata.title) formData.append('title', metadata.title);
+    if (metadata.participants) formData.append('participants', String(metadata.participants));
+    if (metadata.location) formData.append('location', metadata.location);
+    if (metadata.dateConducted) formData.append('dateConducted', metadata.dateConducted);
+    if (metadata.facilitator) formData.append('facilitator', metadata.facilitator);
+
+    const token = this.getToken();
+    const response = await fetch(`${API_BASE}/projects/${projectId}/qualitative/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.message || 'Upload failed');
+    }
+    return response.json();
+  }
+
+  // Assessment report
+  async getAssessmentReport(assessmentId: string) {
+    return this.request(`/assessments/${assessmentId}/report`);
+  }
+
   // Notifications
   async getNotifications() {
     return this.request('/notifications');

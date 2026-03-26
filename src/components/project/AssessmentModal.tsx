@@ -38,7 +38,7 @@ export function AssessmentModal() {
       });
       queryClient.invalidateQueries({ queryKey: ['assessments', projectId] });
       setOpen(false);
-      toast.success("Assessment request submitted successfully");
+      toast.success("Assessment submitted! AI is generating the report — this takes 30-60 seconds.");
     } catch (err: any) {
       toast.error(err.message || "Failed to submit assessment request");
     } finally {
@@ -87,8 +87,11 @@ export function AssessmentModal() {
             <p className="text-xs text-muted-foreground">Estimated Price</p>
             <p className="text-2xl font-semibold text-foreground">${price.toLocaleString()}</p>
           </div>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
+            <strong>AI Auto-Generation:</strong> Our AI will ingest all project data (indicators, qualitative entries, documents) and generate a comprehensive assessment report automatically.
+          </div>
           <Button className="w-full" onClick={handleSubmit} disabled={submitting}>
-            {submitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Submitting...</> : "Submit Request"}
+            {submitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generating...</> : "Generate AI Assessment"}
           </Button>
         </div>
       </DialogContent>
