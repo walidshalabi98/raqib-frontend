@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import { Users, UserPlus, Search, Loader2 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
+import { errorMessage } from "@/lib/utils";
 
 const GENDER_COLORS: Record<string, string> = { male: "#3b82f6", female: "#ec4899", other: "#8b5cf6" };
 const STATUS_COLORS: Record<string, string> = {
@@ -72,8 +73,8 @@ export default function Beneficiaries() {
       queryClient.invalidateQueries({ queryKey: ["beneficiaries", selectedProject] });
       setAddOpen(false);
       setForm({ fullName: "", fullNameAr: "", gender: "male", age: "", ageGroup: "", location: "", governorate: "", phoneNumber: "", nationalId: "", householdSize: "" });
-    } catch (err: any) {
-      toast.error(err.message || "Failed to register");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to register"));
     } finally {
       setCreating(false);
     }

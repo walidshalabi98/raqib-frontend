@@ -16,6 +16,7 @@ import {
   Calendar, AlertTriangle, Clock, CheckCircle2, Users,
 } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage } from "@/lib/utils";
 
 function formatDate(d: string | null | undefined) {
   if (!d) return "—";
@@ -111,8 +112,8 @@ function EditIndicatorDialog({ ind, onSaved }: { ind: any; onSaved: () => void }
       toast.success("Indicator updated");
       setOpen(false);
       onSaved();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to update");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to update"));
     } finally {
       setSaving(false);
     }
@@ -255,8 +256,8 @@ function AddIndicatorDialog({ frameworkId, onAdded }: { frameworkId: string; onA
       setOpen(false);
       setForm({ indicatorText: "", level: "output", dataCollectionMethod: "hh_survey", frequency: "quarterly", baselineValue: "", targetValue: "", unit: "", responsibility: "", startDate: "", endDate: "" });
       onAdded();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to add indicator");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to add indicator"));
     } finally {
       setSaving(false);
     }
@@ -354,8 +355,8 @@ function CreateFrameworkDialog({ projectId, onCreated }: { projectId: string; on
       setOpen(false);
       setName("");
       onCreated();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to create framework");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to create framework"));
     } finally {
       setSaving(false);
     }

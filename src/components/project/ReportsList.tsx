@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { errorMessage } from "@/lib/utils";
 
 const typeBadge: Record<string, string> = {
   assessment_report: "bg-info/10 text-info",
@@ -43,8 +44,8 @@ export function ReportsList({ projectId }: { projectId: string }) {
       queryClient.invalidateQueries({ queryKey: ['reports', projectId] });
       setOpen(false);
       toast.success("Report generation started. It will appear here when ready.");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to generate report");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to generate report"));
     } finally {
       setGenerating(false);
     }

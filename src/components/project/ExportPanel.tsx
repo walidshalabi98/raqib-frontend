@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Download, FileSpreadsheet, FileText, Loader2, Database } from "lucide-react";
+import { errorMessage } from "@/lib/utils";
 
 function downloadCSV(data: any[], filename: string) {
   if (!data.length) { toast.error("No data to export"); return; }
@@ -59,8 +60,8 @@ export default function ExportPanel({ projectId }: { projectId: string }) {
       }));
       downloadCSV(rows, `${data.project.name}_indicators.csv`);
       toast.success("Indicators exported!");
-    } catch (err: any) {
-      toast.error(err.message || "Export failed");
+    } catch (err) {
+      toast.error(errorMessage(err, "Export failed"));
     } finally {
       setLoading(null);
     }
@@ -85,8 +86,8 @@ export default function ExportPanel({ projectId }: { projectId: string }) {
       }));
       downloadCSV(rows, `${data.project.name}_beneficiaries.csv`);
       toast.success("Beneficiaries exported!");
-    } catch (err: any) {
-      toast.error(err.message || "Export failed");
+    } catch (err) {
+      toast.error(errorMessage(err, "Export failed"));
     } finally {
       setLoading(null);
     }
@@ -98,8 +99,8 @@ export default function ExportPanel({ projectId }: { projectId: string }) {
       const data = await api.exportFullProject(projectId);
       downloadJSON(data, `${data.project.name}_full_export.json`);
       toast.success("Full project exported!");
-    } catch (err: any) {
-      toast.error(err.message || "Export failed");
+    } catch (err) {
+      toast.error(errorMessage(err, "Export failed"));
     } finally {
       setLoading(null);
     }

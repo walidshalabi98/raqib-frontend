@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Plus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage } from "@/lib/utils";
 
 export function AssessmentModal() {
   const { id: projectId } = useParams();
@@ -39,8 +40,8 @@ export function AssessmentModal() {
       queryClient.invalidateQueries({ queryKey: ['assessments', projectId] });
       setOpen(false);
       toast.success("Assessment submitted! AI is generating the report — this takes 30-60 seconds.");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to submit assessment request");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to submit assessment request"));
     } finally {
       setSubmitting(false);
     }

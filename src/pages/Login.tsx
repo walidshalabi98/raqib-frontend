@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
+import { errorMessage } from "@/lib/utils";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -33,8 +34,8 @@ export default function Login() {
     try {
       await login(email, password);
       navigate("/dashboard");
-    } catch (err: any) {
-      setError(err.message || "Invalid email or password");
+    } catch (err) {
+      setError(errorMessage(err, "Invalid email or password"));
     } finally {
       setLoading(false);
     }

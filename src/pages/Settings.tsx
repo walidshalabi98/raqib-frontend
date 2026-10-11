@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Upload, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage } from "@/lib/utils";
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -31,13 +32,13 @@ export default function SettingsPage() {
   }
 
   const handleSaveOrg = async () => {
-    if (!user?.organizationId) return;
+    if (!user?.organization?.id) return;
     setSaving(true);
     try {
-      await api.updateOrganization(user.organizationId, { name: orgName });
+      await api.updateOrganization(user.organization.id, { name: orgName });
       toast.success("Organization updated successfully");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to update organization");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to update organization"));
     } finally {
       setSaving(false);
     }
@@ -55,8 +56,8 @@ export default function SettingsPage() {
       setInviteOpen(false);
       setInviteForm({ fullName: "", email: "", role: "me_officer" });
       toast.success("User invited successfully");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to invite user");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to invite user"));
     } finally {
       setInviting(false);
     }

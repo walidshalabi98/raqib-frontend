@@ -15,10 +15,10 @@ Vite · React 18 · TypeScript · Tailwind · shadcn/ui (Radix) · TanStack Quer
 ## Commands
 
 ```bash
-npm ci
+npm ci             # npm only: package-lock.json is the single lockfile
 npm run dev        # http://localhost:5173 ; set VITE_API_URL to the backend (default http://localhost:3001/api)
 npm run build
-npm run typecheck  # tsc -p tsconfig.app.json --noEmit (add in Phase 1 if missing)
+npm run typecheck  # tsc for the app and the Vite config
 npm run lint
 npm test           # Vitest
 npx playwright test

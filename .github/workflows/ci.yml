@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_API_URL: https://api.example.invalid/api
+
+      - name: Check main bundle size (< 500 kB)
+        run: |
+          size=$(find dist/assets -name 'index-*.js' -printf '%s\n' | sort -n | tail -1)
+          echo "Main bundle: $size bytes"
+          test "$size" -lt 512000
+
+      # High findings remain in Tailwind 3's file-watcher chain (no patched `braces` exists);
+      # see README. Critical findings still fail the build.
+      - name: Audit dependencies
+        run: npm audit --audit-level=critical
