@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { errorMessage } from "@/lib/utils";
 
 const sentimentColor: Record<string, string> = {
   positive: "bg-success", mixed: "bg-warning", negative: "bg-danger", neutral: "bg-muted-foreground",
@@ -55,7 +56,7 @@ export function QualitativeCards({ projectId }: { projectId: string }) {
       setOpen(false);
       setForm({ entryType: "fgd_transcript", title: "", content: "", participants: "", location: "", dateConducted: "", facilitator: "" });
       toast.success("Entry added — AI is analyzing themes...");
-    } catch (err: any) { toast.error(err.message || "Failed to add entry"); }
+    } catch (err) { toast.error(errorMessage(err, "Failed to add entry")); }
     finally { setSubmitting(false); }
   };
 
@@ -69,7 +70,7 @@ export function QualitativeCards({ projectId }: { projectId: string }) {
       setUploadFile(null);
       setUploadForm({ entryType: "fgd_transcript", title: "", participants: "", location: "", dateConducted: "", facilitator: "" });
       toast.success("Document uploaded! AI is extracting text and analyzing themes...");
-    } catch (err: any) { toast.error(err.message || "Upload failed"); }
+    } catch (err) { toast.error(errorMessage(err, "Upload failed")); }
     finally { setUploading(false); }
   };
 
@@ -79,7 +80,7 @@ export function QualitativeCards({ projectId }: { projectId: string }) {
       await api.codeQualitativeEntry(entryId);
       toast.success("AI thematic coding started...");
       setTimeout(() => queryClient.invalidateQueries({ queryKey: ['qualitative', projectId] }), 5000);
-    } catch (err: any) { toast.error(err.message); }
+    } catch (err) { toast.error(errorMessage(err, "Something went wrong")); }
   };
 
   if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="h-5 w-5 animate-spin" /></div>;

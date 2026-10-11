@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Upload, FileText, FileSpreadsheet, File, CheckCircle2, Loader2, AlertCircle, Brain, Eye } from "lucide-react";
+import { errorMessage } from "@/lib/utils";
 
 const FILE_TYPE_ICONS: Record<string, any> = {
   proposal: FileText, logframe: FileText, theory_of_change: FileText,
@@ -43,8 +44,8 @@ export default function DocumentManager({ projectId }: { projectId: string }) {
       queryClient.invalidateQueries({ queryKey: ["documents", projectId] });
       setUploadOpen(false);
       setSelectedFile(null);
-    } catch (err: any) {
-      toast.error(err.message || "Upload failed");
+    } catch (err) {
+      toast.error(errorMessage(err, "Upload failed"));
     } finally {
       setUploading(false);
     }

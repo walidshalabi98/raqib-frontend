@@ -21,6 +21,18 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": "off",
+      // Warning, not error: API responses are still untyped. Typed API models arrive with the
+      // Phase 2 data model; turn this back into an error once they exist.
+      "@typescript-eslint/no-explicit-any": "warn",
+    },
+  },
+  {
+    // Generated shadcn/ui components: they export variants next to components and use
+    // empty interfaces by design. Keep them as generated rather than hand-editing.
+    files: ["src/components/ui/**/*.{ts,tsx}"],
+    rules: {
+      "react-refresh/only-export-components": "off",
+      "@typescript-eslint/no-empty-object-type": "off",
     },
   },
 );

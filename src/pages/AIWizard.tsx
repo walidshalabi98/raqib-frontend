@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Check, Loader2, Upload, Pencil, RefreshCw, Trash2, ArrowLeft, ArrowRight, FileText } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage } from "@/lib/utils";
 
 const steps = ["Upload Documents", "AI Processing", "Review Framework", "Summary"];
 
@@ -77,8 +78,8 @@ export default function AIWizard() {
       const doc = await api.uploadDocument(projectId, file, fileType);
       setUploadedFiles(prev => [...prev, { name: doc.fileName, type: doc.fileType, id: doc.id }]);
       toast.success("Document uploaded successfully");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to upload document");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to upload document"));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -132,10 +133,10 @@ export default function AIWizard() {
         }
       };
       setTimeout(poll, 2000);
-    } catch (err: any) {
+    } catch (err) {
       clearInterval(interval);
       setGenerating(false);
-      toast.error(err.message || "Failed to start framework generation");
+      toast.error(errorMessage(err, "Failed to start framework generation"));
       setCurrentStep(0);
     }
   };
@@ -145,8 +146,8 @@ export default function AIWizard() {
     try {
       await api.approveIndicator(indId);
       setApprovedIds(prev => new Set([...prev, indId]));
-    } catch (err: any) {
-      toast.error(err.message || "Failed to approve indicator");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to approve indicator"));
     }
   };
 
@@ -156,8 +157,8 @@ export default function AIWizard() {
       await api.deleteIndicator(indId);
       setIndicators(prev => prev.filter(i => i.id !== indId));
       toast.success("Indicator removed");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to delete indicator");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to delete indicator"));
     }
   };
 
@@ -166,8 +167,8 @@ export default function AIWizard() {
     try {
       await api.requestAlternative(indId);
       toast.success("Alternative requested — check back shortly");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to request alternative");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to request alternative"));
     }
   };
 
@@ -180,8 +181,8 @@ export default function AIWizard() {
       queryClient.invalidateQueries({ queryKey: ['framework', projectId] });
       toast.success("Framework approved!");
       navigate(`/projects/${projectId}`);
-    } catch (err: any) {
-      toast.error(err.message || "Failed to approve framework");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to approve framework"));
     } finally {
       setApproving(false);
     }

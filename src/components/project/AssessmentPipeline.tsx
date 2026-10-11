@@ -33,7 +33,7 @@ export function AssessmentPipeline({ projectId }: { projectId: string }) {
     try {
       const data = await api.getAssessmentReport(assessmentId);
       setViewingReport(data);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
     } finally {
       setLoadingReport(null);

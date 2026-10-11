@@ -1,3 +1,12 @@
+interface QualitativeUploadMetadata {
+  entryType?: string;
+  title?: string;
+  participants?: number | string;
+  location?: string;
+  dateConducted?: string;
+  facilitator?: string;
+}
+
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').trim();
 
 class ApiClient {
@@ -27,7 +36,7 @@ class ApiClient {
     return raw ? JSON.parse(raw) : null;
   }
 
-  setUser(user: any) {
+  setUser(user: object) {
     localStorage.setItem('raqib_user', JSON.stringify(user));
   }
 
@@ -48,8 +57,8 @@ class ApiClient {
         ...options,
         headers,
       });
-    } catch (err: any) {
-      throw new Error(err.message || 'Network error — please check your connection');
+    } catch (err) {
+      throw new Error(err instanceof Error && err.message ? err.message : 'Network error — please check your connection');
     }
 
     if (response.status === 401) {
@@ -125,7 +134,7 @@ class ApiClient {
     return this.request(`/projects/${id}`);
   }
 
-  async createProject(data: any) {
+  async createProject(data: object) {
     return this.request('/projects', { method: 'POST', body: JSON.stringify(data) });
   }
 
@@ -159,12 +168,12 @@ class ApiClient {
     return this.request(`/projects/${projectId}/framework/manual`, { method: 'POST', body: JSON.stringify({ name }) });
   }
 
-  async addIndicatorToFramework(frameworkId: string, data: any) {
+  async addIndicatorToFramework(frameworkId: string, data: object) {
     return this.request(`/frameworks/${frameworkId}/indicators`, { method: 'POST', body: JSON.stringify(data) });
   }
 
   // Indicators
-  async updateIndicator(id: string, data: any) {
+  async updateIndicator(id: string, data: object) {
     return this.request(`/indicators/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   }
 
@@ -185,7 +194,7 @@ class ApiClient {
     return this.request(`/indicators/${indicatorId}/data`);
   }
 
-  async addDataPoint(indicatorId: string, data: any) {
+  async addDataPoint(indicatorId: string, data: object) {
     return this.request(`/indicators/${indicatorId}/data`, { method: 'POST', body: JSON.stringify(data) });
   }
 
@@ -194,7 +203,7 @@ class ApiClient {
     return this.request(`/projects/${projectId}/assessments`);
   }
 
-  async requestAssessment(projectId: string, data: any) {
+  async requestAssessment(projectId: string, data: object) {
     return this.request(`/projects/${projectId}/assessments`, { method: 'POST', body: JSON.stringify(data) });
   }
 
@@ -226,7 +235,7 @@ class ApiClient {
     return this.request(`/projects/${projectId}/reports`);
   }
 
-  async generateReport(projectId: string, config: any) {
+  async generateReport(projectId: string, config: object) {
     return this.request(`/projects/${projectId}/reports/generate`, { method: 'POST', body: JSON.stringify(config) });
   }
 
@@ -239,7 +248,7 @@ class ApiClient {
     return this.request(`/projects/${projectId}/qualitative`);
   }
 
-  async addQualitativeEntry(projectId: string, data: any) {
+  async addQualitativeEntry(projectId: string, data: object) {
     return this.request(`/projects/${projectId}/qualitative`, { method: 'POST', body: JSON.stringify(data) });
   }
 
@@ -247,7 +256,7 @@ class ApiClient {
     return this.request(`/qualitative/${entryId}/code`, { method: 'POST' });
   }
 
-  async uploadQualitativeDocument(projectId: string, file: File, metadata: any) {
+  async uploadQualitativeDocument(projectId: string, file: File, metadata: QualitativeUploadMetadata) {
     const formData = new FormData();
     formData.append('file', file);
     if (metadata.entryType) formData.append('entryType', metadata.entryType);
@@ -293,7 +302,7 @@ class ApiClient {
     return this.request(`/organizations/${id}`);
   }
 
-  async updateOrganization(id: string, data: any) {
+  async updateOrganization(id: string, data: object) {
     return this.request(`/organizations/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   }
 
@@ -302,7 +311,7 @@ class ApiClient {
     return this.request('/users');
   }
 
-  async inviteUser(data: any) {
+  async inviteUser(data: object) {
     return this.request('/users/invite', { method: 'POST', body: JSON.stringify(data) });
   }
 
@@ -310,16 +319,16 @@ class ApiClient {
   async getBeneficiaries(projectId: string) {
     return this.request(`/projects/${projectId}/beneficiaries`);
   }
-  async createBeneficiary(projectId: string, data: any) {
+  async createBeneficiary(projectId: string, data: object) {
     return this.request(`/projects/${projectId}/beneficiaries`, { method: 'POST', body: JSON.stringify(data) });
   }
   async getBeneficiary(id: string) {
     return this.request(`/beneficiaries/${id}`);
   }
-  async updateBeneficiary(id: string, data: any) {
+  async updateBeneficiary(id: string, data: object) {
     return this.request(`/beneficiaries/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   }
-  async addBeneficiaryService(beneficiaryId: string, data: any) {
+  async addBeneficiaryService(beneficiaryId: string, data: object) {
     return this.request(`/beneficiaries/${beneficiaryId}/services`, { method: 'POST', body: JSON.stringify(data) });
   }
   async getBeneficiaryStats(projectId: string) {

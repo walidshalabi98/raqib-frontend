@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Search, Plus, LayoutGrid, List, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage } from "@/lib/utils";
 
 export default function Projects() {
   const [search, setSearch] = useState("");
@@ -56,8 +57,8 @@ export default function Projects() {
       setDialogOpen(false);
       setNewProject({ name: "", description: "", sector: "livelihoods", donor: "", donorType: "eu", budgetUsd: "", startDate: "", endDate: "", targetBeneficiaries: "", geographicScope: "" });
       toast.success("Project created successfully");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to create project");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to create project"));
     } finally {
       setCreating(false);
     }
