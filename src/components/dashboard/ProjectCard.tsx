@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { SECTOR_LABELS } from "@/data/mockData";
+import { SECTOR_LABELS } from "@/lib/constants";
 import { StatusDot } from "@/components/common/StatusDot";
 
 interface ProjectCardProps {

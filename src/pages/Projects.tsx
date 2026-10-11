@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/services/api";
-import { SECTOR_LABELS } from "@/data/mockData";
+import { SECTOR_LABELS } from "@/lib/constants";
 import { StatusDot } from "@/components/common/StatusDot";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

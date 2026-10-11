@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -102,6 +102,18 @@
   h1, h2, h3, h4, h5, h6 {
     font-weight: 600;
     letter-spacing: -0.5px;
+  }
+
+  /* Arabic (docs/UX_STANDARDS.md §4): DM Sans has no Arabic glyphs; Arabic needs taller lines. */
+  [lang="ar"] {
+    font-family: 'IBM Plex Sans Arabic', 'DM Sans', sans-serif;
+    line-height: 1.7;
+  }
+
+  /* Letter spacing breaks the joining of Arabic letters, so it never applies to Arabic text. */
+  [lang="ar"],
+  [lang="ar"] * {
+    letter-spacing: normal !important;
   }
 }
 

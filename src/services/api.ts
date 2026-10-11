@@ -1,3 +1,24 @@
+import type {
+  AuthUser,
+  BulkDataPointInput,
+  DataPoint,
+  DataPointInput,
+  Framework,
+  GenerateFrameworkResponse,
+  GenerationStatus,
+  Indicator,
+  IndicatorDataResponse,
+  IndicatorInput,
+  LibraryEntry,
+  LibraryFilters,
+  LoginResponse,
+  Project,
+  ProjectDetail,
+  ProjectInput,
+  ResultNode,
+  ResultNodeInput,
+} from '@/types/api';
+
 interface QualitativeUploadMetadata {
   entryType?: string;
   title?: string;
@@ -31,16 +52,27 @@ class ApiClient {
     localStorage.removeItem('raqib_user');
   }
 
-  getUser() {
+  getUser(): AuthUser | null {
     const raw = localStorage.getItem('raqib_user');
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as AuthUser;
+    } catch {
+      return null;
+    }
   }
 
   setUser(user: object) {
     localStorage.setItem('raqib_user', JSON.stringify(user));
   }
 
-  private async request(endpoint: string, options: RequestInit = {}) {
+  /**
+   * Calls the API and returns the parsed JSON body. `T` is the response type;
+   * endpoints without a model in src/types/api.ts keep the untyped default
+   * until their screens are rebuilt (Phase 6).
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- default for endpoints not yet modelled
+  private async request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...((options.headers as Record<string, string>) || {}),
@@ -67,7 +99,7 @@ class ApiClient {
       if (refreshed) {
         headers['Authorization'] = `Bearer ${this.getToken()}`;
         const retry = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-        if (retry.ok) return retry.json();
+        if (retry.ok) return this.parseBody<T>(retry);
       }
       this.clearToken();
       window.location.href = '/';
@@ -79,7 +111,13 @@ class ApiClient {
       throw new Error(error.message || 'API request failed');
     }
 
-    return response.json();
+    return this.parseBody<T>(response);
+  }
+
+  /** JSON body of a successful response; undefined for an empty body (e.g. 204). */
+  private async parseBody<T>(response: Response): Promise<T> {
+    const text = await response.text();
+    return (text ? JSON.parse(text) : undefined) as T;
   }
 
   private async tryRefresh(): Promise<boolean> {
@@ -102,8 +140,8 @@ class ApiClient {
   }
 
   // Auth
-  async login(email: string, password: string) {
-    const data = await this.request('/auth/login', {
+  async login(email: string, password: string): Promise<LoginResponse> {
+    const data = await this.request<LoginResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
@@ -127,15 +165,19 @@ class ApiClient {
 
   // Projects
   async getProjects() {
-    return this.request('/projects');
+    return this.request<Project[]>('/projects');
   }
 
   async getProject(id: string) {
-    return this.request(`/projects/${id}`);
+    return this.request<ProjectDetail>(`/projects/${id}`);
   }
 
-  async createProject(data: object) {
-    return this.request('/projects', { method: 'POST', body: JSON.stringify(data) });
+  async createProject(data: ProjectInput) {
+    return this.request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async updateProject(id: string, data: Partial<ProjectInput>) {
+    return this.request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   }
 
   // Dashboard
@@ -148,37 +190,71 @@ class ApiClient {
   }
 
   // Framework
+  /** Latest framework of the project with its results chain and indicators, or null. */
   async getFramework(projectId: string) {
-    return this.request(`/projects/${projectId}/framework`);
+    return this.request<Framework | null>(`/projects/${projectId}/framework`);
   }
 
   async generateFramework(projectId: string) {
-    return this.request(`/projects/${projectId}/framework/generate`, { method: 'POST' });
+    return this.request<GenerateFrameworkResponse>(`/projects/${projectId}/framework/generate`, { method: 'POST' });
   }
 
   async checkGenerationStatus(frameworkId: string) {
-    return this.request(`/frameworks/${frameworkId}/status`);
+    return this.request<GenerationStatus>(`/frameworks/${frameworkId}/status`);
   }
 
   async approveFramework(frameworkId: string) {
-    return this.request(`/frameworks/${frameworkId}/approve`, { method: 'PATCH' });
+    return this.request<Framework>(`/frameworks/${frameworkId}/approve`, { method: 'PATCH' });
   }
 
   async createManualFramework(projectId: string, name: string) {
-    return this.request(`/projects/${projectId}/framework/manual`, { method: 'POST', body: JSON.stringify({ name }) });
+    return this.request<Omit<Framework, 'resultNodes' | 'indicators'>>(`/projects/${projectId}/framework/manual`, { method: 'POST', body: JSON.stringify({ name }) });
   }
 
-  async addIndicatorToFramework(frameworkId: string, data: object) {
-    return this.request(`/frameworks/${frameworkId}/indicators`, { method: 'POST', body: JSON.stringify(data) });
+  async addIndicatorToFramework(frameworkId: string, data: IndicatorInput) {
+    return this.request<Indicator>(`/frameworks/${frameworkId}/indicators`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  // Results chain
+  async getFrameworkResults(frameworkId: string) {
+    return this.request<ResultNode[]>(`/frameworks/${frameworkId}/results`);
+  }
+
+  async createResultNode(frameworkId: string, data: ResultNodeInput) {
+    return this.request<ResultNode>(`/frameworks/${frameworkId}/results`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async updateResultNode(id: string, data: Partial<ResultNodeInput>) {
+    return this.request<ResultNode>(`/results/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+  }
+
+  /** Fails with 409 while the result has child results; its indicators become unlinked. */
+  async deleteResultNode(id: string) {
+    return this.request<unknown>(`/results/${id}`, { method: 'DELETE' });
+  }
+
+  // Indicator library
+  async getIndicatorLibrary(filters: LibraryFilters = {}) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (value === undefined || value === null || value === '') continue;
+      params.set(key, String(value));
+    }
+    const query = params.toString();
+    return this.request<LibraryEntry[]>(`/indicator-library${query ? `?${query}` : ''}`);
+  }
+
+  async getLibraryEntry(id: string) {
+    return this.request<LibraryEntry>(`/indicator-library/${encodeURIComponent(id)}`);
   }
 
   // Indicators
-  async updateIndicator(id: string, data: object) {
-    return this.request(`/indicators/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+  async updateIndicator(id: string, data: IndicatorInput) {
+    return this.request<Indicator>(`/indicators/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   }
 
   async approveIndicator(id: string) {
-    return this.request(`/indicators/${id}/approve`, { method: 'PATCH' });
+    return this.request<Indicator>(`/indicators/${id}/approve`, { method: 'PATCH' });
   }
 
   async requestAlternative(indicatorId: string) {
@@ -191,11 +267,16 @@ class ApiClient {
 
   // Indicator data
   async getIndicatorData(indicatorId: string) {
-    return this.request(`/indicators/${indicatorId}/data`);
+    return this.request<IndicatorDataResponse>(`/indicators/${indicatorId}/data`);
   }
 
-  async addDataPoint(indicatorId: string, data: object) {
-    return this.request(`/indicators/${indicatorId}/data`, { method: 'POST', body: JSON.stringify(data) });
+  async addDataPoint(indicatorId: string, data: DataPointInput) {
+    return this.request<DataPoint>(`/indicators/${indicatorId}/data`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  /** Each row may carry a `breakdown`; the whole batch is rejected (400) when any row is invalid. */
+  async addDataPointsBulk(projectId: string, dataPoints: BulkDataPointInput[]) {
+    return this.request<unknown>(`/projects/${projectId}/data/bulk`, { method: 'POST', body: JSON.stringify({ dataPoints }) });
   }
 
   // Assessments
