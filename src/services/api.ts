@@ -1,6 +1,7 @@
 import type {
   AuthUser,
   BulkDataPointInput,
+  BulkDataPointResponse,
   DataPoint,
   DataPointInput,
   Framework,
@@ -15,6 +16,8 @@ import type {
   Project,
   ProjectDetail,
   ProjectInput,
+  ProjectUpdateInput,
+  ResultDeleteResponse,
   ResultNode,
   ResultNodeInput,
 } from '@/types/api';
@@ -176,7 +179,7 @@ class ApiClient {
     return this.request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) });
   }
 
-  async updateProject(id: string, data: Partial<ProjectInput>) {
+  async updateProject(id: string, data: ProjectUpdateInput) {
     return this.request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   }
 
@@ -230,7 +233,7 @@ class ApiClient {
 
   /** Fails with 409 while the result has child results; its indicators become unlinked. */
   async deleteResultNode(id: string) {
-    return this.request<unknown>(`/results/${id}`, { method: 'DELETE' });
+    return this.request<ResultDeleteResponse>(`/results/${id}`, { method: 'DELETE' });
   }
 
   // Indicator library
@@ -276,7 +279,7 @@ class ApiClient {
 
   /** Each row may carry a `breakdown`; the whole batch is rejected (400) when any row is invalid. */
   async addDataPointsBulk(projectId: string, dataPoints: BulkDataPointInput[]) {
-    return this.request<unknown>(`/projects/${projectId}/data/bulk`, { method: 'POST', body: JSON.stringify({ dataPoints }) });
+    return this.request<BulkDataPointResponse>(`/projects/${projectId}/data/bulk`, { method: 'POST', body: JSON.stringify({ dataPoints }) });
   }
 
   // Assessments

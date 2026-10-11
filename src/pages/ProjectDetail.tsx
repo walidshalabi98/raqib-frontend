@@ -67,9 +67,9 @@ export default function ProjectDetail() {
   const currentStage = getStageIndex(project.status);
   const framework = project.frameworks?.[0];
   const indicators = framework?.indicators || [];
-  const onTrack = indicators.filter((i: any) => i.status === "on_track").length;
-  const atRisk = indicators.filter((i: any) => i.status === "at_risk").length;
-  const offTrack = indicators.filter((i: any) => i.status === "off_track").length;
+  const onTrack = indicators.filter((i) => i.status === "on_track").length;
+  const atRisk = indicators.filter((i) => i.status === "at_risk").length;
+  const offTrack = indicators.filter((i) => i.status === "off_track").length;
 
   const tabs = [
     { label: "Overview", value: "overview" },

@@ -120,6 +120,12 @@
     "description": "املأ البطاقة المرجعية للمؤشر. الحقول المميّزة بعلامة * مطلوبة.",
     "expandAll": "فتح جميع الأقسام",
     "collapseAll": "إغلاق جميع الأقسام",
+    "sectionErrors_zero": "لا توجد مشكلات",
+    "sectionErrors_one": "مشكلة واحدة",
+    "sectionErrors_two": "مشكلتان",
+    "sectionErrors_few": "{{count}} مشكلات",
+    "sectionErrors_many": "{{count}} مشكلةً",
+    "sectionErrors_other": "{{count}} مشكلة",
     "sections": {
       "basics": "المعلومات الأساسية",
       "definition": "التعريف وطريقة الحساب",
@@ -182,14 +188,14 @@
       "denominator": "مثال: جميع الأسر المستهدفة التي شملها المسح",
       "formula": "مثال: البسط ÷ المقام × 100",
       "rounding": "مثال: منزلة عشرية واحدة",
-      "customGroup": "مثال: female_headed_household",
+      "customGroup": "female_headed_household",
       "meansOfVerification": "الأداة والمستجيبون والعيّنة",
       "responsibility": "مثال: مسؤول المتابعة والتقييم",
       "baselineMethod": "مثال: مسح أسري لخط الأساس، عيّنة من 400 أسرة",
       "targetJustification": "لماذا تُعدّ هذه القيمة واقعية، وما مصدرها",
       "assumptions": "ما يجب أن يتحقق لحدوث التغيير، وحدود البيانات المعروفة",
-      "libraryId": "مثال: FS-01",
-      "standardReferenceCode": "مثال: GERF 2.38",
+      "libraryId": "FS-01",
+      "standardReferenceCode": "GERF 2.38",
       "milestoneLabel": "مثال: اكتمال مسح خط الأساس"
     },
     "hints": {
@@ -223,6 +229,11 @@
     },
     "noResultOption": "غير مرتبط بنتيجة",
     "directionNone": "غير محدد",
+    "library": {
+      "checking": "جارٍ البحث في مكتبة المؤشرات…",
+      "found": "في المكتبة: {{name}}",
+      "notFound": "هذا الرمز غير موجود في مكتبة المؤشرات. تحقّق منه أو اترك الحقل فارغًا."
+    },
     "errors": {
       "summary_zero": "يُرجى تصحيح المشكلات قبل الحفظ.",
       "summary_one": "يُرجى تصحيح مشكلة واحدة قبل الحفظ.",
@@ -238,6 +249,7 @@
       "numeratorRequired": "تتطلّب النسب المئوية بسطًا.",
       "denominatorRequired": "تتطلّب النسب المئوية مقامًا.",
       "groupKey": "«{{key}}» ليس رمز فئة صالحًا. استخدم أحرفًا إنجليزية صغيرة وأرقامًا وشرطات سفلية، على أن يبدأ بحرف.",
+      "groupKeyWithSuggestion": "«{{key}}» ليس رمز فئة صالحًا. استخدم أحرفًا إنجليزية صغيرة وأرقامًا وشرطات سفلية، مثل «{{suggestion}}».",
       "groupDuplicate": "«{{key}}» موجود في القائمة بالفعل.",
       "groupMax": "يمكنك إدراج {{max}} فئة على الأكثر.",
       "groupEmpty": "اكتب رمز الفئة أولًا.",
@@ -246,7 +258,8 @@
       "targetDuplicate": "توجد أكثر من قيمة مستهدفة للتاريخ {{date}}.",
       "targetMax": "يمكنك إضافة {{max}} قيمة مستهدفة مرحلية على الأكثر.",
       "milestoneLabel": "المعلم {{n}}: أدخِل وصفًا.",
-      "milestoneDate": "المعلم {{n}}: أدخِل تاريخًا صحيحًا بالصيغة YYYY-MM-DD."
+      "milestoneDate": "المعلم {{n}}: أدخِل تاريخًا صحيحًا بالصيغة YYYY-MM-DD.",
+      "milestoneMax": "يمكنك إضافة {{max}} معلمًا رئيسيًا على الأكثر."
     },
     "toast": {
       "created": "أُضيف المؤشر",
@@ -287,7 +300,7 @@
       "parent": "النتيجة الأم",
       "noParent": "بلا نتيجة أم (أعلى السلسلة)",
       "code": "الرمز",
-      "codePlaceholder": "مثال: Goal أو O1 أو O1.1",
+      "codePlaceholder": "Goal · O1 · O1.1",
       "text": "نص النتيجة (بالإنجليزية)",
       "textAr": "نص النتيجة (بالعربية)",
       "sortOrder": "الترتيب",
@@ -298,6 +311,7 @@
       "saving": "جارٍ الحفظ…",
       "errors": {
         "code": "أدخِل رمزًا، مثل O1.",
+        "codeTaken": "توجد نتيجة أخرى تستخدم الرمز «{{code}}». اختر رمزًا مختلفًا.",
         "text": "أدخِل نص النتيجة بالإنجليزية.",
         "tooLong": "استخدم {{max}} حرفًا على الأكثر.",
         "sortOrder": "أدخِل عددًا صحيحًا يساوي 0 أو أكثر.",
@@ -356,7 +370,9 @@
       "startDate": "أدخِل تاريخ البدء.",
       "endDate": "أدخِل تاريخ الانتهاء.",
       "endBeforeStart": "يجب أن يكون تاريخ الانتهاء في تاريخ البدء أو بعده.",
-      "number": "أدخِل رقمًا يساوي 0 أو أكثر."
+      "date": "أدخِل تاريخًا صحيحًا بالصيغة YYYY-MM-DD.",
+      "number": "أدخِل رقمًا يساوي 0 أو أكثر.",
+      "wholeNumber": "أدخِل عددًا صحيحًا يساوي 0 أو أكثر."
     },
     "toast": {
       "created": "أُنشئ المشروع",

@@ -120,6 +120,8 @@
     "description": "Fill in the indicator reference sheet. Fields marked * are required.",
     "expandAll": "Open all sections",
     "collapseAll": "Close all sections",
+    "sectionErrors_one": "{{count}} problem",
+    "sectionErrors_other": "{{count}} problems",
     "sections": {
       "basics": "Basics",
       "definition": "Definition and calculation",
@@ -223,6 +225,11 @@
     },
     "noResultOption": "No linked result",
     "directionNone": "Not set",
+    "library": {
+      "checking": "Checking the indicator library…",
+      "found": "In the library: {{name}}",
+      "notFound": "This ID is not in the indicator library. Check it, or leave the field empty."
+    },
     "errors": {
       "summary_one": "Please fix {{count}} problem before saving.",
       "summary_other": "Please fix {{count}} problems before saving.",
@@ -234,6 +241,7 @@
       "numeratorRequired": "Percentages need a numerator.",
       "denominatorRequired": "Percentages need a denominator.",
       "groupKey": "“{{key}}” is not a valid group key. Use lowercase letters, numbers and underscores, starting with a letter.",
+      "groupKeyWithSuggestion": "“{{key}}” is not a valid group key. Use lowercase letters, numbers and underscores, for example “{{suggestion}}”.",
       "groupDuplicate": "“{{key}}” is already in the list.",
       "groupMax": "You can list at most {{max}} groups.",
       "groupEmpty": "Type a group key first.",
@@ -242,7 +250,8 @@
       "targetDuplicate": "There is more than one target for {{date}}.",
       "targetMax": "You can add at most {{max}} intermediate targets.",
       "milestoneLabel": "Milestone {{n}}: enter a label.",
-      "milestoneDate": "Milestone {{n}}: enter a real date in the format YYYY-MM-DD."
+      "milestoneDate": "Milestone {{n}}: enter a real date in the format YYYY-MM-DD.",
+      "milestoneMax": "You can add at most {{max}} milestones."
     },
     "toast": {
       "created": "Indicator added",
@@ -286,6 +295,7 @@
       "saving": "Saving…",
       "errors": {
         "code": "Enter a code, for example O1.",
+        "codeTaken": "Another result already uses the code “{{code}}”. Choose a different code.",
         "text": "Enter the result statement in English.",
         "tooLong": "Use at most {{max}} characters.",
         "sortOrder": "Enter a whole number of 0 or more.",
@@ -344,7 +354,9 @@
       "startDate": "Enter the start date.",
       "endDate": "Enter the end date.",
       "endBeforeStart": "The end date must be on or after the start date.",
-      "number": "Enter a number of 0 or more."
+      "date": "Enter a real date in the format YYYY-MM-DD.",
+      "number": "Enter a number of 0 or more.",
+      "wholeNumber": "Enter a whole number of 0 or more."
     },
     "toast": {
       "created": "Project created",

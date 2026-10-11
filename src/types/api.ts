@@ -145,6 +145,9 @@ export interface ProjectInput {
   geographicScope?: string | null;
 }
 
+/** PATCH /api/projects/:id: any subset of the create fields, plus `status`. */
+export type ProjectUpdateInput = Partial<ProjectInput> & { status?: ProjectStatus };
+
 // -------------------------------------------------- frameworks and results
 
 /** A results-chain node: impact → outcome → output → activity. */
@@ -170,6 +173,13 @@ export interface ResultNodeInput {
   textAr?: string | null;
   parentId?: string | null;
   sortOrder?: number;
+}
+
+/** DELETE /api/results/:id (409 while the result has child results). */
+export interface ResultDeleteResponse {
+  message: string;
+  /** Indicators that were linked to the result; they are now unlinked (resultId null). */
+  unlinkedIndicators: number;
 }
 
 /** The result an indicator measures, as returned with every indicator. */
@@ -348,8 +358,10 @@ export interface IndicatorDataResponse {
 /** POST /api/indicators/:id/data */
 export interface DataPointInput {
   value: string | number;
+  /** YYYY-MM-DD */
   collectionDate: string;
-  collectionMethod?: CollectionMethod;
+  /** Required by the backend (400 when missing). */
+  collectionMethod: CollectionMethod;
   dataSource?: string | null;
   geographicArea?: string | null;
   notes?: string | null;
@@ -360,6 +372,11 @@ export interface DataPointInput {
 /** One row of POST /api/projects/:id/data/bulk. */
 export interface BulkDataPointInput extends DataPointInput {
   indicatorId: string;
+}
+
+/** 201 body of POST /api/projects/:id/data/bulk. Errors (400) name rows from 1: "Row 3: sex: ...". */
+export interface BulkDataPointResponse {
+  count: number;
 }
 
 // --------------------------------------------------------------- library
