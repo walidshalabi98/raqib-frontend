@@ -243,7 +243,7 @@ export default function AIWizard() {
             )}
             <p className="text-sm font-medium">{uploading ? "Uploading..." : "Click to upload project documents"}</p>
             <p className="text-xs text-muted-foreground mt-1">Proposals, logframes, theory of change, donor guidelines</p>
-            <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.docx,.xlsx,.doc,.xls" onChange={handleFileUpload} />
+            <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.docx,.doc,.xlsx" onChange={handleFileUpload} />
           </div>
           {uploadedFiles.length > 0 && (
             <div className="space-y-2">
