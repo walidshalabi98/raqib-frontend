@@ -137,7 +137,7 @@ export function QualitativeCards({ projectId }: { projectId: string }) {
                   <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                   <p className="text-sm font-medium">Upload Interview Transcript or FGD Notes</p>
                   <p className="text-xs text-muted-foreground mb-3">PDF, DOCX, or XLSX — AI will extract text and analyze themes</p>
-                  <input type="file" accept=".pdf,.docx,.xlsx,.xls,.doc,.txt" onChange={e => setUploadFile(e.target.files?.[0] || null)}
+                  <input type="file" accept=".pdf,.docx,.doc,.xlsx" onChange={e => setUploadFile(e.target.files?.[0] || null)}
                     className="block w-full text-sm border rounded-md p-2" />
                   {uploadFile && <p className="text-xs text-green-600 mt-1">Selected: {uploadFile.name}</p>}
                 </div>

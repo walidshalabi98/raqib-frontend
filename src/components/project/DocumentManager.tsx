@@ -87,7 +87,7 @@ export default function DocumentManager({ projectId }: { projectId: string }) {
               </div>
               <div>
                 <label className="text-sm font-medium">File (PDF, DOCX, XLSX)</label>
-                <input type="file" accept=".pdf,.docx,.xlsx,.xls,.doc"
+                <input type="file" accept=".pdf,.docx,.doc,.xlsx"
                   onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
                   className="mt-1 block w-full text-sm border rounded-md p-2" />
               </div>
