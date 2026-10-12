@@ -6,5 +6,6 @@ export const queryKeys = {
   framework: (projectId: string) => ["framework", projectId] as const,
   dashboard: (projectId: string) => ["dashboard", projectId] as const,
   frameworkResults: (frameworkId: string) => ["framework-results", frameworkId] as const,
+  documents: (projectId: string) => ["documents", projectId] as const,
   libraryEntry: (id: string) => ["indicator-library", "entry", id] as const,
 };

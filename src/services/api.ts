@@ -15,6 +15,7 @@ import type {
   LoginResponse,
   Project,
   ProjectDetail,
+  ProjectDocument,
   ProjectInput,
   ProjectUpdateInput,
   ResultDeleteResponse,
@@ -196,7 +197,7 @@ class ApiClient {
   }
 
   // Framework
-  /** Latest framework of the project with its results chain and indicators, or null. */
+  /** The project's current framework (newest version whose AI generation did not fail) with its results chain and indicators, or null. */
   async getFramework(projectId: string) {
     return this.request<Framework | null>(`/projects/${projectId}/framework`);
   }
@@ -205,6 +206,7 @@ class ApiClient {
     return this.request<GenerateFrameworkResponse>(`/projects/${projectId}/framework/generate`, { method: 'POST' });
   }
 
+  /** processing, completed (with the framework) or failed (with a message that is safe to show); an interrupted run is reported as failed. */
   async checkGenerationStatus(frameworkId: string) {
     return this.request<GenerationStatus>(`/frameworks/${frameworkId}/status`);
   }
@@ -296,11 +298,16 @@ class ApiClient {
   }
 
   // Documents
+  /** Newest first, with textLength and the stored AI analysis (aiAnalysis); never the extracted text or the storage key. */
   async getDocuments(projectId: string) {
-    return this.request(`/projects/${projectId}/documents`);
+    return this.request<ProjectDocument[]>(`/projects/${projectId}/documents`);
   }
 
-  async uploadDocument(projectId: string, file: File, fileType: string) {
+  /**
+   * Uploads to private storage; parsing and AI analysis run afterwards (parsingStatus starts as "pending").
+   * PDF, Word (.docx) and Excel (.xlsx) only: the backend refuses Word 97–2003 (.doc) files (400).
+   */
+  async uploadDocument(projectId: string, file: File, fileType: string): Promise<ProjectDocument> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('fileType', fileType);
@@ -313,7 +320,7 @@ class ApiClient {
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || 'Upload failed');
+      throw new ApiError(error.message || 'Upload failed', response.status);
     }
     return response.json();
   }

@@ -1,13 +1,18 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useId, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/services/api";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Check, Loader2, Upload, Pencil, RefreshCw, Trash2, ArrowLeft, ArrowRight, FileText } from "lucide-react";
+import { AlertCircle, Check, Loader2, Upload, RefreshCw, Trash2, ArrowLeft, ArrowRight, FileText } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { errorMessage } from "@/lib/utils";
+import { dirFor } from "@/i18n";
+import { useUserLanguage } from "@/i18n/useUserLanguage";
+import { PersonalDataWarning } from "@/components/common/PersonalDataWarning";
+import type { Indicator } from "@/types/api";
 
 const steps = ["Upload Documents", "AI Processing", "Review Framework", "Summary"];
 
@@ -32,6 +37,9 @@ export default function AIWizard() {
   const navigate = useNavigate();
   const { id: projectId } = useParams();
   const queryClient = useQueryClient();
+  const lang = useUserLanguage();
+  const { t } = useTranslation(undefined, { lng: lang });
+  const warningId = useId();
   const [currentStep, setCurrentStep] = useState(0);
 
   // Step 0: Upload state
@@ -45,9 +53,21 @@ export default function AIWizard() {
   const [frameworkId, setFrameworkId] = useState<string | null>(null);
   const [pollingStatus, setPollingStatus] = useState<string>("");
   const [processingStepIdx, setProcessingStepIdx] = useState(0);
+  /** The backend's safe message when the last generation failed; shown on the upload step, where "Process" retries. */
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  // Stops the status polling and the step animation when the page is left.
+  const unmounted = useRef(false);
+  const stepTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    unmounted.current = false;
+    return () => {
+      unmounted.current = true;
+      if (stepTimer.current) clearInterval(stepTimer.current);
+    };
+  }, []);
 
   // Step 2: Review state
-  const [indicators, setIndicators] = useState<any[]>([]);
+  const [indicators, setIndicators] = useState<Indicator[]>([]);
   const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
 
   // Step 3: Summary state
@@ -64,7 +84,7 @@ export default function AIWizard() {
   // Load existing documents on mount
   useEffect(() => {
     if (!projectId) return;
-    api.getDocuments(projectId).then((docs: any[]) => {
+    api.getDocuments(projectId).then((docs) => {
       setUploadedFiles(docs.map(d => ({ name: d.fileName, type: d.fileType, id: d.id })));
     }).catch(() => {});
   }, [projectId]);
@@ -86,44 +106,52 @@ export default function AIWizard() {
     }
   };
 
-  // Start framework generation and poll for status
+  // Start framework generation and poll for status until it is completed or failed
   const startGeneration = async () => {
     if (!projectId) return;
     setCurrentStep(1);
     setGenerating(true);
+    setGenerationError(null);
+    setPollingStatus("");
     setProcessingStepIdx(0);
 
     // Animate processing steps
+    if (stepTimer.current) clearInterval(stepTimer.current);
     const interval = setInterval(() => {
       setProcessingStepIdx(prev => {
         if (prev < processingMessages.length - 1) return prev + 1;
         return prev;
       });
     }, 2000);
+    stepTimer.current = interval;
 
     try {
       const result = await api.generateFramework(projectId);
       const fwId = result.frameworkId || result.id;
+      if (!fwId) throw new Error("No framework id");
       setFrameworkId(fwId);
 
-      // Poll for completion
+      // Poll for completion. The backend reports an interrupted run as failed, so this ends.
       const poll = async () => {
+        if (unmounted.current) return;
         try {
           const status = await api.checkGenerationStatus(fwId);
+          if (unmounted.current) return;
           setPollingStatus(status.status);
-          if (status.status === "completed" || status.status === "active" || status.status === "draft" || status.status === "expert_review") {
+          if (status.status === "completed") {
             clearInterval(interval);
             setProcessingStepIdx(processingMessages.length);
-            // Fetch the framework indicators
-            const fw = await api.getFramework(projectId!);
-            const inds = fw.indicators || [];
-            setIndicators(inds);
+            // The status carries the framework; fall back to the project's current framework.
+            const fw = status.framework ?? (await api.getFramework(projectId));
+            if (unmounted.current) return;
+            setIndicators(fw?.indicators ?? []);
             setGenerating(false);
             setTimeout(() => setCurrentStep(2), 800);
           } else if (status.status === "failed") {
             clearInterval(interval);
             setGenerating(false);
-            toast.error("Framework generation failed. Please try again.");
+            setGenerationError(status.message);
+            toast.error(t("frameworkGeneration.failedTitle"), { description: status.message });
             setCurrentStep(0);
           } else {
             setTimeout(poll, 3000);
@@ -219,6 +247,15 @@ export default function AIWizard() {
       {/* Step 0: Upload */}
       {currentStep === 0 && (
         <div className="space-y-4">
+          {generationError && (
+            <div role="alert" lang={lang} dir={dirFor(lang)} className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+              <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+              <div className="min-w-0 space-y-1">
+                <p className="font-medium">{t("frameworkGeneration.failedTitle")}</p>
+                <p dir="auto" lang="en" className="break-words">{generationError}</p>
+              </div>
+            </div>
+          )}
           <div className="flex items-center gap-3 mb-2">
             <Select value={fileType} onValueChange={setFileType}>
               <SelectTrigger className="w-48 rounded-lg"><SelectValue /></SelectTrigger>
@@ -244,8 +281,9 @@ export default function AIWizard() {
             )}
             <p className="text-sm font-medium">{uploading ? "Uploading..." : "Click to upload project documents"}</p>
             <p className="text-xs text-muted-foreground mt-1">Proposals, logframes, theory of change, donor guidelines</p>
-            <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.docx,.doc,.xlsx" onChange={handleFileUpload} />
+            <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.docx,.xlsx" aria-describedby={warningId} onChange={handleFileUpload} />
           </div>
+          <PersonalDataWarning id={warningId} lang={lang} />
           {uploadedFiles.length > 0 && (
             <div className="space-y-2">
               {uploadedFiles.map(f => (

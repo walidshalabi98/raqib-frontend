@@ -1,12 +1,14 @@
 import type {
   ClientProvenance,
   CollectionMethod,
+  DocumentFileType,
   DonorType,
   Frequency,
   IndicatorDirection,
   IndicatorLevel,
   IndicatorProvenance,
   IndicatorStatus,
+  ParsingStatus,
   Sector,
 } from "@/types/api";
 import en from "@/i18n/en.json";
@@ -88,6 +90,19 @@ export const PROVENANCES: readonly IndicatorProvenance[] = ["library", "ai_sugge
 /** Provenance values a client may send; ai_* are set only by Raqib's AI features. */
 export const CLIENT_PROVENANCES: readonly ClientProvenance[] = ["manual", "library", "imported"];
 
+/** Document types offered on upload (Prisma enum DocumentType). */
+export const DOCUMENT_FILE_TYPES: readonly DocumentFileType[] = [
+  "proposal",
+  "logframe",
+  "theory_of_change",
+  "baseline_report",
+  "donor_guidelines",
+  "budget",
+  "other",
+];
+
+export const PARSING_STATUSES: readonly ParsingStatus[] = ["pending", "processing", "completed", "failed"];
+
 /** Disaggregation groups offered as one-click chips (knowledge/me-foundations.md §4). */
 export const DISAGGREGATION_SUGGESTIONS = [
   "sex",
@@ -98,18 +113,32 @@ export const DISAGGREGATION_SUGGESTIONS = [
   "sex_of_household_head",
 ] as const;
 
-/** Units used by the indicator library (knowledge/indicator-library.json meta.enums.unit). */
+/**
+ * Indicator units offered as suggestions: the shared unit list of the backend
+ * (raqib-backend src/services/ai/prompts/framework.ts, the framework schema's unit
+ * enum). Only "number" is a count unit (breakdown groups must add up to the value);
+ * ratio, index, score, currency, time and distance units are not.
+ */
 export const UNIT_SUGGESTIONS = [
   "number",
   "percent",
   "score",
+  "ratio",
+  "index",
   "litres_per_person_per_day",
   "hectares",
   "dunums",
   "megawatts",
   "tonnes_co2eq",
   "currency_ils",
+  "currency_usd",
+  "currency_eur",
+  "currency_jod",
   "kg_per_dunum",
+  "days",
+  "hours",
+  "minutes",
+  "km",
   "yes_no",
 ] as const;
 

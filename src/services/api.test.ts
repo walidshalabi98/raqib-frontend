@@ -26,4 +26,18 @@ describe("api client errors", () => {
     expect(httpStatusOf(await api.getLibraryEntry("FS-01").catch((e: unknown) => e))).toBeUndefined();
     expect(httpStatusOf(new Error("plain"))).toBeUndefined();
   });
+
+  it("reports a failed document upload as an ApiError with its status", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(413, { message: "File too large" })));
+    const file = new File(["x"], "proposal.pdf", { type: "application/pdf" });
+    const err = await api.uploadDocument("p-1", file, "proposal").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).message).toBe("File too large");
+    expect(httpStatusOf(err)).toBe(413);
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not json", { status: 500 })));
+    const fallback = await api.uploadDocument("p-1", file, "proposal").catch((e: unknown) => e);
+    expect((fallback as ApiError).message).toBe("Upload failed");
+    expect(httpStatusOf(fallback)).toBe(500);
+  });
 });

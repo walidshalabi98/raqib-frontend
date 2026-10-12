@@ -53,7 +53,7 @@ export function DocumentUpload({ projectId }: { projectId: string }) {
         <Upload className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
         <p className="text-sm font-medium">Drag and drop files here</p>
         <p className="text-xs text-muted-foreground mt-1">or click to browse · PDF, DOCX, XLSX up to 50MB</p>
-        <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.docx,.doc,.xlsx" onChange={handleUpload} />
+        <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.docx,.xlsx" onChange={handleUpload} />
       </div>
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {documents.map((doc: any) => {
