@@ -88,6 +88,28 @@ describe("CreateProjectDialog", () => {
     expect(dialog).toHaveAttribute("dir", "rtl");
     expect(within(dialog).getByRole("heading", { name: "إنشاء مشروع جديد" })).toBeInTheDocument();
     expect(within(dialog).getByRole("checkbox", { name: "المأوى" })).toBeInTheDocument();
-    expect(within(dialog).getByRole("switch", { name: "مشروع إنساني" })).toBeInTheDocument();
+    const humanitarian = within(dialog).getByRole("switch", { name: "مشروع إنساني" });
+    await user.click(humanitarian);
+    expect(humanitarian).toHaveAttribute("data-state", "checked");
+    // The thumb moves left in right-to-left layouts, so it stays inside the track.
+    const thumb = humanitarian.querySelector("span") as HTMLElement;
+    expect(thumb).toHaveClass("rtl:data-[state=checked]:-translate-x-5");
+    expect(thumb).toHaveAttribute("data-state", "checked");
+    // The trigger on the (untranslated) projects page carries the language of its text.
+    expect(screen.getByRole("button", { name: "مشروع جديد", hidden: true })).toHaveAttribute("lang", "ar");
+  });
+
+  it("accepts Arabic-Indic digits in budget and beneficiaries", async () => {
+    vi.mocked(api.createProject).mockResolvedValue({ id: "p-new" } as never);
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(/^Project name/), "Water trucking");
+    await user.type(within(dialog).getByLabelText(/^Donor name/), "UNICEF");
+    await user.type(within(dialog).getByLabelText("Budget (USD)"), "٥٠٠٬٠٠٠");
+    await user.type(within(dialog).getByLabelText("Target beneficiaries"), "١٢٠٠");
+    fireEvent.change(within(dialog).getByLabelText(/^Start date/), { target: { value: "2026-11-01" } });
+    fireEvent.change(within(dialog).getByLabelText(/^End date/), { target: { value: "2027-10-31" } });
+    await user.click(within(dialog).getByRole("button", { name: "Create project" }));
+    await waitFor(() => expect(api.createProject).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.createProject).mock.calls[0][0]).toMatchObject({ budgetUsd: 500000, targetBeneficiaries: 1200 });
   });
 });

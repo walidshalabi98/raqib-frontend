@@ -196,6 +196,7 @@
     },
     "hints": {
       "result": "Link the indicator to the goal, outcome or output it measures.",
+      "levelFromResult": "Set by the linked result. To choose another level, remove the link first.",
       "noResults": "No results yet. Add them in the results chain above to link indicators.",
       "nameAr": "Shown to Arabic readers. Leave empty if it is not ready yet.",
       "unitPercent": "Percentages need a numerator and a denominator.",
@@ -228,7 +229,8 @@
     "library": {
       "checking": "Checking the indicator library…",
       "found": "In the library: {{name}}",
-      "notFound": "This ID is not in the indicator library. Check it, or leave the field empty."
+      "notFound": "This ID is not in the indicator library. Check it, or leave the field empty.",
+      "unavailable": "We couldn't check the indicator library just now. The ID is checked again when you save."
     },
     "errors": {
       "summary_one": "Please fix {{count}} problem before saving.",
@@ -238,8 +240,6 @@
       "date": "Enter a real date in the format YYYY-MM-DD.",
       "endBeforeStart": "The planned end must be on or after the planned start.",
       "actualEndBeforeStart": "The actual end must be on or after the actual start.",
-      "numeratorRequired": "Percentages need a numerator.",
-      "denominatorRequired": "Percentages need a denominator.",
       "groupKey": "“{{key}}” is not a valid group key. Use lowercase letters, numbers and underscores, starting with a letter.",
       "groupKeyWithSuggestion": "“{{key}}” is not a valid group key. Use lowercase letters, numbers and underscores, for example “{{suggestion}}”.",
       "groupDuplicate": "“{{key}}” is already in the list.",
@@ -252,6 +252,10 @@
       "milestoneLabel": "Milestone {{n}}: enter a label.",
       "milestoneDate": "Milestone {{n}}: enter a real date in the format YYYY-MM-DD.",
       "milestoneMax": "You can add at most {{max}} milestones."
+    },
+    "warnings": {
+      "numerator": "Percentages need a numerator. You can save now and add it later.",
+      "denominator": "Percentages need a denominator. You can save now and add it later."
     },
     "toast": {
       "created": "Indicator added",

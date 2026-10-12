@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  blockingErrors,
   buildCreatePayload,
   buildUpdatePayload,
   changedFields,
   checkGroupKey,
   emptyIndicatorForm,
   formValuesToPayload,
+  indicatorFormWarnings,
   indicatorToFormValues,
+  isFrameworkApproved,
   isPercentUnit,
   needsAiReviewLabel,
+  normaliseLibraryId,
   sectionOfField,
   suggestGroupKey,
   validateIndicatorForm,
@@ -73,10 +77,12 @@ describe("validateIndicatorForm", () => {
     expect(validateIndicatorForm(emptyIndicatorForm({ indicatorText: "Number of trainees" }))).toEqual({});
   });
 
-  it("requires numerator and denominator for percentages", () => {
-    const errors = validateIndicatorForm(emptyIndicatorForm({ indicatorText: "x", unit: "%" }));
-    expect(errors.numerator).toEqual({ key: "numeratorRequired" });
-    expect(errors.denominator).toEqual({ key: "denominatorRequired" });
+  it("warns, without blocking, when a percentage has no numerator or denominator", () => {
+    const values = emptyIndicatorForm({ indicatorText: "x", unit: "%" });
+    expect(validateIndicatorForm(values)).toEqual({});
+    expect(indicatorFormWarnings(values)).toEqual({ numerator: { key: "numerator" }, denominator: { key: "denominator" } });
+    expect(indicatorFormWarnings({ ...values, numerator: "a", denominator: "b" })).toEqual({});
+    expect(indicatorFormWarnings({ ...values, unit: "number" })).toEqual({});
   });
 
   it("checks dates and date order", () => {
@@ -120,6 +126,28 @@ describe("validateIndicatorForm", () => {
     expect(errors.disaggregation).toEqual({ key: "groupKey", values: { key: "Bad Key" } });
   });
 
+  it("blocks an edit only on fields the user changed", () => {
+    const initial = emptyIndicatorForm({
+      indicatorText: "x",
+      disaggregation: ["Bad Key"],
+      milestones: [{ label: "", date: "", completed: false }],
+      startDate: "2026-01-01",
+      endDate: "2026-06-30",
+    });
+    const stored = validateIndicatorForm(initial);
+    expect(Object.keys(stored).sort()).toEqual(["disaggregation", "milestones.0.label"]);
+    // Create: every problem blocks.
+    expect(blockingErrors(stored, initial, null)).toEqual(stored);
+    // Edit, nothing changed: stored problems do not block.
+    expect(blockingErrors(stored, initial, initial)).toEqual({});
+    // Edit, the list changed: its problems block.
+    const withAge = { ...initial, disaggregation: ["Bad Key", "age"] };
+    expect(blockingErrors(validateIndicatorForm(withAge), withAge, initial)).toEqual({ disaggregation: stored.disaggregation });
+    // An end date error blocks when the start date moved past it.
+    const later = { ...initial, startDate: "2026-07-01" };
+    expect(blockingErrors(validateIndicatorForm(later), later, initial).endDate).toEqual({ key: "endBeforeStart" });
+  });
+
   it("maps fields to their sections", () => {
     expect(sectionOfField("indicatorText")).toBe("basics");
     expect(sectionOfField("numerator")).toBe("definition");
@@ -154,6 +182,16 @@ describe("payloads", () => {
     expect(buildUpdatePayload(indicator, indicatorToFormValues(indicator))).toEqual({});
   });
 
+  it("sends library ids trimmed and upper-case", () => {
+    expect(normaliseLibraryId(" fs-01 ")).toBe("FS-01");
+    expect(formValuesToPayload(emptyIndicatorForm({ indicatorText: "x", libraryId: " wash-03 " })).libraryId).toBe("WASH-03");
+    expect(formValuesToPayload(emptyIndicatorForm({ indicatorText: "x", libraryId: "  " })).libraryId).toBeNull();
+    // A stored id differing only in case is not a change.
+    const indicator = makeIndicator({ libraryId: "fs-01" });
+    expect(buildUpdatePayload(indicator, { ...indicatorToFormValues(indicator), libraryId: "FS-01" })).toEqual({});
+    expect(buildUpdatePayload(makeIndicator(), { ...indicatorToFormValues(makeIndicator()), libraryId: "fs-02" })).toEqual({ libraryId: "FS-02" });
+  });
+
   it("sends only the changed fields on edit", () => {
     const indicator = makeIndicator();
     const values = indicatorToFormValues(indicator);
@@ -179,11 +217,20 @@ describe("payloads", () => {
 });
 
 describe("needsAiReviewLabel", () => {
-  it("labels AI-made indicators until they are approved", () => {
-    expect(needsAiReviewLabel("ai_suggested", false)).toBe(true);
-    expect(needsAiReviewLabel("ai_generated", false)).toBe(true);
-    expect(needsAiReviewLabel("ai_suggested", true)).toBe(false);
-    expect(needsAiReviewLabel("manual", false)).toBe(false);
-    expect(needsAiReviewLabel("library", false)).toBe(false);
+  it("labels AI-made indicators until they or their framework are approved", () => {
+    expect(needsAiReviewLabel("ai_suggested", false, "draft")).toBe(true);
+    expect(needsAiReviewLabel("ai_generated", false, "client_review")).toBe(true);
+    expect(needsAiReviewLabel("ai_generated", false, undefined)).toBe(true);
+    expect(needsAiReviewLabel("ai_suggested", true, "draft")).toBe(false);
+    expect(needsAiReviewLabel("ai_generated", false, "approved")).toBe(false);
+    expect(needsAiReviewLabel("ai_suggested", false, "active")).toBe(false);
+    expect(needsAiReviewLabel("manual", false, "draft")).toBe(false);
+    expect(needsAiReviewLabel("library", false, "draft")).toBe(false);
+  });
+
+  it("treats approved and active frameworks as approved", () => {
+    expect(["draft", "expert_review", "client_review", "approved", "active"].map((s) => isFrameworkApproved(s as never)))
+      .toEqual([false, false, false, true, true]);
+    expect(isFrameworkApproved(null)).toBe(false);
   });
 });

@@ -175,6 +175,11 @@ export interface ResultNodeInput {
   sortOrder?: number;
 }
 
+/** PATCH /api/results/:id: the saved result plus how many linked indicators moved to its new level. */
+export interface ResultUpdateResponse extends ResultNode {
+  updatedIndicators: number;
+}
+
 /** DELETE /api/results/:id (409 while the result has child results). */
 export interface ResultDeleteResponse {
   message: string;
@@ -278,8 +283,10 @@ export interface Indicator {
 
 /**
  * Body of POST /api/frameworks/:id/indicators and PATCH /api/indicators/:id.
- * null clears a nullable field. Clients may set provenance only to manual,
- * library or imported.
+ * null clears a nullable field. A linked indicator's level must be its result's
+ * level (400 otherwise; without a level the result's is used). Provenance is
+ * accepted on create only (manual, library or imported); on PATCH the server
+ * ignores it and sets it from libraryId. libraryId is matched in upper case.
  */
 export interface IndicatorInput {
   indicatorText?: string;
@@ -355,7 +362,13 @@ export interface IndicatorDataResponse {
   count: number;
 }
 
-/** POST /api/indicators/:id/data */
+/**
+ * POST /api/indicators/:id/data (org admins and M&E officers; donor viewers get 403).
+ * Numeric values are stored in canonical form ("١٬٢٠٠" and "1,200" become "1200").
+ * Breakdown rules follow the indicator's unit: a count needs a numeric value and
+ * groups that add up to it; a percentage takes 0–100 per group with no sum; a
+ * blank unit is checked as a percentage only when the indicator text reads as one.
+ */
 export interface DataPointInput {
   value: string | number;
   /** YYYY-MM-DD */
@@ -369,7 +382,7 @@ export interface DataPointInput {
   breakdown?: Breakdown | null;
 }
 
-/** One row of POST /api/projects/:id/data/bulk. */
+/** One row of POST /api/projects/:id/data/bulk (same roles and rules as DataPointInput). */
 export interface BulkDataPointInput extends DataPointInput {
   indicatorId: string;
 }

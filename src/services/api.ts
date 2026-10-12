@@ -20,7 +20,9 @@ import type {
   ResultDeleteResponse,
   ResultNode,
   ResultNodeInput,
+  ResultUpdateResponse,
 } from '@/types/api';
+import { ApiError } from '@/lib/apiError';
 
 interface QualitativeUploadMetadata {
   entryType?: string;
@@ -70,7 +72,8 @@ class ApiClient {
   }
 
   /**
-   * Calls the API and returns the parsed JSON body. `T` is the response type;
+   * Calls the API and returns the parsed JSON body; a failed response throws an
+   * ApiError carrying the HTTP status. `T` is the response type;
    * endpoints without a model in src/types/api.ts keep the untyped default
    * until their screens are rebuilt (Phase 6).
    */
@@ -106,12 +109,12 @@ class ApiClient {
       }
       this.clearToken();
       window.location.href = '/';
-      throw new Error('Unauthorized');
+      throw new ApiError('Unauthorized', 401);
     }
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || 'API request failed');
+      throw new ApiError(error.message || 'API request failed', response.status);
     }
 
     return this.parseBody<T>(response);
@@ -227,8 +230,9 @@ class ApiClient {
     return this.request<ResultNode>(`/frameworks/${frameworkId}/results`, { method: 'POST', body: JSON.stringify(data) });
   }
 
+  /** A level change moves the result's indicators too (updatedIndicators); refetch them afterwards. */
   async updateResultNode(id: string, data: Partial<ResultNodeInput>) {
-    return this.request<ResultNode>(`/results/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+    return this.request<ResultUpdateResponse>(`/results/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   }
 
   /** Fails with 409 while the result has child results; its indicators become unlinked. */

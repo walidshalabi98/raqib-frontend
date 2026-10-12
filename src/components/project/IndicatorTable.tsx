@@ -144,15 +144,17 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.framework(projectId) });
 
+  // This screen is English apart from the translated parts, so those carry their own lang (WCAG 3.1.2).
   const editButton = (ind: Indicator) => (
     <IndicatorDialog
       mode="edit"
       projectId={projectId}
       frameworkId={ind.frameworkId}
       indicator={ind}
+      frameworkStatus={framework?.status}
       resultNodes={resultNodes}
       trigger={
-        <Button variant="ghost" size="sm" className="h-7 px-2" aria-label={t("indicatorTable.editIndicator", { name: ind.indicatorText })}>
+        <Button variant="ghost" size="sm" className="h-7 px-2" lang={lang} aria-label={t("indicatorTable.editIndicator", { name: ind.indicatorText })}>
           <Pencil aria-hidden="true" className="h-3 w-3 me-1" /> {t("indicatorTable.edit")}
         </Button>
       }
@@ -206,9 +208,10 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
             mode="create"
             projectId={projectId}
             frameworkId={framework.id}
+            frameworkStatus={framework.status}
             resultNodes={resultNodes}
             trigger={
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" lang={lang}>
                 <Plus aria-hidden="true" className="h-4 w-4 me-1.5" /> {t("indicatorTable.addIndicator")}
               </Button>
             }
@@ -253,7 +256,7 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                           {ind.result.code}
                         </span>
                       )}
-                      {needsAiReviewLabel(ind.provenance, ind.isApproved) && (
+                      {needsAiReviewLabel(ind.provenance, ind.isApproved, framework.status) && (
                         <span lang={lang} className="mt-0.5 flex items-center gap-1 text-[10px] font-medium text-foreground">
                           <Sparkles aria-hidden="true" className="h-3 w-3" /> {t("ai.suggestedLabel")}
                         </span>

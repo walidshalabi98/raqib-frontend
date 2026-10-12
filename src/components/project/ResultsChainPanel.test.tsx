@@ -5,6 +5,7 @@ import { ResultsChainPanel } from "@/components/project/ResultsChainPanel";
 import { api } from "@/services/api";
 import { renderWithClient } from "@/test/utils";
 import { makeResultNode, sampleResultNodes } from "@/test/fixtures";
+import { queryKeys } from "@/lib/queryKeys";
 
 vi.mock("@/services/api", () => ({
   api: {
@@ -112,8 +113,9 @@ describe("ResultsChainPanel", () => {
 
   it("edits only the changed fields and locks the level of a result with children", async () => {
     const user = userEvent.setup({ delay: null });
-    vi.mocked(api.updateResultNode).mockResolvedValue(sampleResultNodes()[1]);
-    renderPanel();
+    vi.mocked(api.updateResultNode).mockResolvedValue({ ...sampleResultNodes()[1], updatedIndicators: 0 });
+    const { client } = renderPanel();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
     await user.click(await screen.findByRole("button", { name: "Edit O1" }));
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByLabelText("Level")).toBeDisabled();
@@ -123,6 +125,8 @@ describe("ResultsChainPanel", () => {
     await user.type(text, "Improved household food consumption");
     await user.click(within(dialog).getByRole("button", { name: "Save result" }));
     await waitFor(() => expect(api.updateResultNode).toHaveBeenCalledWith("o1", { text: "Improved household food consumption" }));
+    // A level change moves the result's indicators on the server, so the framework (with its indicators) is refetched.
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.framework("p-1") }));
   });
 
   it("deletes a leaf result after confirmation", async () => {
@@ -135,6 +139,29 @@ describe("ResultsChainPanel", () => {
     expect(within(confirm).getByText(/Its 1 indicator stays in the framework/)).toBeInTheDocument();
     await user.click(within(confirm).getByRole("button", { name: "Delete result" }));
     await waitFor(() => expect(api.deleteResultNode).toHaveBeenCalledWith("o11"));
+    // The delete button is gone with its result; focus moves to the parent's row, not to <body>.
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit O1" })).toHaveFocus());
+  });
+
+  it("returns focus to the delete button when the deletion is cancelled", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderPanel();
+    const del = await screen.findByRole("button", { name: "Delete O2" });
+    await user.click(del);
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    expect(api.deleteResultNode).not.toHaveBeenCalled();
+    await waitFor(() => expect(del).toHaveFocus());
+  });
+
+  it("moves focus to the results chain heading after deleting a top-level result", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.getFrameworkResults).mockResolvedValue([makeResultNode({ id: "g", code: "Goal", level: "impact" })]);
+    vi.mocked(api.deleteResultNode).mockResolvedValue({ message: "Result deleted", unlinkedIndicators: 0 });
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Delete Goal" }));
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete result" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Results chain" })).toHaveFocus());
   });
 
   it("shows an empty state with one action, and Arabic text when switched", async () => {

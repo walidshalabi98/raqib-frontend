@@ -2,9 +2,9 @@ import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type React
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { AlertCircle, CheckCircle2, Clock, Info, Loader2, Plus, Save, Sparkles, Trash2, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, Clock, Info, Loader2, Plus, Save, Sparkles, Trash2, X } from "lucide-react";
 import { api } from "@/services/api";
-import type { Indicator, IndicatorInput, ResultNode } from "@/types/api";
+import type { FrameworkStatus, Indicator, IndicatorInput, ResultNode } from "@/types/api";
 import { dirFor, type AppLanguage } from "@/i18n";
 import {
   COLLECTION_METHODS,
@@ -20,14 +20,17 @@ import {
   LIMITS,
   MAX_INTERMEDIATE_TARGETS,
   MAX_MILESTONES,
+  blockingErrors,
   buildCreatePayload,
   buildUpdatePayload,
   checkGroupKey,
   createProvenance,
   emptyIndicatorForm,
+  indicatorFormWarnings,
   indicatorToFormValues,
   isPercentUnit,
   needsAiReviewLabel,
+  normaliseLibraryId,
   sectionOfField,
   validateIndicatorForm,
   type FormError,
@@ -37,6 +40,7 @@ import {
 import { buildResultTree, flattenResultTree, resultText } from "@/lib/resultsHierarchy";
 import { queryKeys } from "@/lib/queryKeys";
 import { invalidateFrameworkData, useDebouncedValue } from "@/hooks/useFrameworkData";
+import { httpStatusOf } from "@/lib/apiError";
 import { cn, errorMessage } from "@/lib/utils";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -51,7 +55,8 @@ import { FieldMessage } from "@/components/common/FieldMessage";
  * The indicator reference sheet (knowledge/me-foundations.md §3) as one form,
  * used to add and to edit indicators. Sections are an accordion (keyboard
  * accessible); every input has a visible label; errors are announced.
- * On edit only the changed fields are sent.
+ * On edit only the changed fields are sent, and only problems in changed
+ * fields block saving.
  */
 
 export interface IndicatorFormProps {
@@ -60,6 +65,8 @@ export interface IndicatorFormProps {
   frameworkId: string;
   /** The indicator being edited (edit mode). */
   indicator?: Indicator;
+  /** Status of the indicator's framework; once approved, AI-made indicators lose the review label. */
+  frameworkStatus?: FrameworkStatus | null;
   /** Result nodes of the framework, for the "Result it measures" select. */
   resultNodes: readonly ResultNode[];
   /** Language of the labels; the form renders right-to-left in Arabic. */
@@ -84,6 +91,7 @@ export function IndicatorForm({
   projectId,
   frameworkId,
   indicator,
+  frameworkStatus,
   resultNodes,
   lang,
   defaultResultId,
@@ -95,8 +103,12 @@ export function IndicatorForm({
   const baseId = useId();
   const fid = (name: string) => `${baseId}-${name.replace(/\./g, "-")}`;
 
+  // The stored values on edit: problems already in them do not block saving.
+  const [initialValues] = useState<IndicatorFormValues | null>(() =>
+    mode === "edit" && indicator ? indicatorToFormValues(indicator) : null,
+  );
   const [values, setValues] = useState<IndicatorFormValues>(() => {
-    if (mode === "edit" && indicator) return indicatorToFormValues(indicator);
+    if (initialValues) return initialValues;
     const result = resultNodes.find((n) => n.id === defaultResultId);
     return emptyIndicatorForm(result ? { resultId: result.id, level: result.level } : {});
   });
@@ -109,8 +121,9 @@ export function IndicatorForm({
   const [focusTarget, setFocusTarget] = useState<string | null>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
 
-  const errors = useMemo(() => validateIndicatorForm(values), [values]);
+  const errors = useMemo(() => blockingErrors(validateIndicatorForm(values), values, initialValues), [values, initialValues]);
   const errorKeys = Object.keys(errors);
+  const warnings = useMemo(() => indicatorFormWarnings(values), [values]);
 
   const set = <K extends keyof IndicatorFormValues>(key: K, value: IndicatorFormValues[K]) => {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -120,6 +133,7 @@ export function IndicatorForm({
 
   const errorText = (e: FormError | null | undefined) => (e ? t(`indicatorForm.errors.${e.key}`, e.values) : undefined);
   const visibleError = (name: string) => (submitted || touched.has(name) ? errorText(errors[name]) : undefined);
+  const warningText = (name: string) => (warnings[name] ? t(`indicatorForm.warnings.${warnings[name].key}`) : undefined);
 
   /** id, aria and blur props for the input of a field. */
   const control = (name: string, opts: { hint?: boolean } = {}) => {
@@ -127,7 +141,8 @@ export function IndicatorForm({
     return {
       id: fid(name),
       "aria-invalid": error ? true : undefined,
-      "aria-describedby": [opts.hint ? `${fid(name)}-hint` : null, `${fid(name)}-error`].filter(Boolean).join(" "),
+      "aria-describedby": [opts.hint ? `${fid(name)}-hint` : null, warnings[name] ? `${fid(name)}-warning` : null, `${fid(name)}-error`]
+        .filter(Boolean).join(" "),
       onBlur: () => touch(name),
     } as const;
   };
@@ -157,14 +172,17 @@ export function IndicatorForm({
   }, [resultNodes, lang, values.resultId, indicator]);
 
   const onResultChange = (resultId: string) => {
-    const node = resultNodes.find((n) => n.id === resultId);
-    // An indicator usually sits at the level of the result it measures.
+    const node = resultNodes.find((n) => n.id === resultId)
+      ?? (indicator?.result?.id === resultId ? indicator.result : undefined);
+    // A linked indicator sits at the level of the result it measures (me-foundations §2); the API rejects other levels.
     setValues((prev) => ({ ...prev, resultId, ...(node ? { level: node.level } : {}) }));
     setServerError(null);
   };
+  const levelFromResult = Boolean(values.resultId);
 
   // ------------------------------------------------------------ library id
-  const libraryId = useDebouncedValue(values.libraryId.trim(), 400);
+  // Library ids are stored upper-case; "fs-01" finds FS-01.
+  const libraryId = useDebouncedValue(normaliseLibraryId(values.libraryId), 400);
   const libraryLookup = useQuery({
     queryKey: queryKeys.libraryEntry(libraryId),
     queryFn: () => api.getLibraryEntry(libraryId),
@@ -173,8 +191,9 @@ export function IndicatorForm({
     staleTime: 5 * 60_000,
   });
 
-  const libraryActive = LIBRARY_ID_PATTERN.test(libraryId) && libraryId === values.libraryId.trim();
+  const libraryActive = LIBRARY_ID_PATTERN.test(libraryId) && libraryId === normaliseLibraryId(values.libraryId);
   const libraryEntry = libraryLookup.data;
+  // Only a 404 means the id is not in the library; other failures (offline, 5xx) say nothing about the id.
   const libraryState: LookupState = !libraryActive
     ? "idle"
     : libraryLookup.isFetching
@@ -182,7 +201,7 @@ export function IndicatorForm({
       : libraryEntry
         ? "found"
         : libraryLookup.isError
-          ? "notFound"
+          ? httpStatusOf(libraryLookup.error) === 404 ? "notFound" : "unavailable"
           : "idle";
   const libraryMessage = {
     idle: "",
@@ -191,6 +210,7 @@ export function IndicatorForm({
       ? t("indicatorForm.library.found", { name: lang === "ar" && libraryEntry.nameAr ? libraryEntry.nameAr : libraryEntry.name })
       : "",
     notFound: t("indicatorForm.library.notFound"),
+    unavailable: t("indicatorForm.library.unavailable"),
   }[libraryState];
 
   // ------------------------------------------------------- disaggregation
@@ -263,7 +283,9 @@ export function IndicatorForm({
 
   const allOpen = openSections.length === FORM_SECTIONS.length;
   const provenance = mode === "edit" && indicator ? indicator.provenance : createProvenance(values);
-  const showAiLabel = mode === "edit" && indicator ? needsAiReviewLabel(indicator.provenance, indicator.isApproved) : false;
+  const showAiLabel = mode === "edit" && indicator
+    ? needsAiReviewLabel(indicator.provenance, indicator.isApproved, frameworkStatus)
+    : false;
   const saving = mutation.isPending;
 
   // --------------------------------------------------------------- layout
@@ -274,7 +296,7 @@ export function IndicatorForm({
         <span className="flex flex-1 items-center gap-2">
           {t(`indicatorForm.sections.${section}`)}
           {count > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">
+            <span className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-1.5 py-0.5 text-xs font-medium text-destructive">
               <AlertCircle aria-hidden="true" className="h-3 w-3" />
               {t("indicatorForm.sectionErrors", { count })}
             </span>
@@ -301,7 +323,8 @@ export function IndicatorForm({
           aria-live="assertive"
           className={cn(
             "rounded-md border px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            (submitted && errorKeys.length > 0) || serverError ? "border-destructive/50 bg-destructive/5" : "sr-only",
+            // No tinted background: destructive text on bg-background keeps 4.5:1 contrast (WCAG 1.4.3).
+            (submitted && errorKeys.length > 0) || serverError ? "border-destructive/50" : "sr-only",
           )}
         >
           {submitted && errorKeys.length > 0 && (
@@ -377,8 +400,10 @@ export function IndicatorForm({
                 </NativeSelect>
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field id={fid("level")} label={t("indicatorForm.fields.level")} error={visibleError("level")}>
-                  <NativeSelect {...control("level")} value={values.level} onChange={(e) => set("level", e.target.value as IndicatorFormValues["level"])}>
+                <Field id={fid("level")} label={t("indicatorForm.fields.level")} error={visibleError("level")}
+                  hint={levelFromResult ? t("indicatorForm.hints.levelFromResult") : undefined}>
+                  <NativeSelect {...control("level", { hint: levelFromResult })} disabled={levelFromResult} value={values.level}
+                    onChange={(e) => set("level", e.target.value as IndicatorFormValues["level"])}>
                     {INDICATOR_LEVELS.map((level) => <option key={level} value={level}>{t(`level.${level}`)}</option>)}
                   </NativeSelect>
                 </Field>
@@ -419,13 +444,15 @@ export function IndicatorForm({
                 </Field>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field id={fid("numerator")} label={t("indicatorForm.fields.numerator")} required={percent} error={visibleError("numerator")}>
-                  <Textarea {...control("numerator")} aria-required={percent || undefined} dir="auto" rows={2} maxLength={LIMITS.numerator}
+                <Field id={fid("numerator")} label={t("indicatorForm.fields.numerator")} error={visibleError("numerator")}
+                  warning={warningText("numerator")}>
+                  <Textarea {...control("numerator")} dir="auto" rows={2} maxLength={LIMITS.numerator}
                     placeholder={t("indicatorForm.placeholders.numerator")}
                     value={values.numerator} onChange={(e) => set("numerator", e.target.value)} />
                 </Field>
-                <Field id={fid("denominator")} label={t("indicatorForm.fields.denominator")} required={percent} error={visibleError("denominator")}>
-                  <Textarea {...control("denominator")} aria-required={percent || undefined} dir="auto" rows={2} maxLength={LIMITS.denominator}
+                <Field id={fid("denominator")} label={t("indicatorForm.fields.denominator")} error={visibleError("denominator")}
+                  warning={warningText("denominator")}>
+                  <Textarea {...control("denominator")} dir="auto" rows={2} maxLength={LIMITS.denominator}
                     placeholder={t("indicatorForm.placeholders.denominator")}
                     value={values.denominator} onChange={(e) => set("denominator", e.target.value)} />
                 </Field>
@@ -774,6 +801,7 @@ function Field({
   required,
   hint,
   hintIcon,
+  warning,
   error,
   labelClassName,
   children,
@@ -783,6 +811,8 @@ function Field({
   required?: boolean;
   hint?: string;
   hintIcon?: ReactNode;
+  /** Advice that does not block saving. */
+  warning?: string;
   error?: string;
   labelClassName?: string;
   children: ReactNode;
@@ -800,13 +830,19 @@ function Field({
           <span>{hint}</span>
         </p>
       )}
+      {warning && (
+        <p id={`${id}-warning`} className="flex items-start gap-1.5 text-xs font-medium">
+          <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+          <span>{warning}</span>
+        </p>
+      )}
       <FieldMessage id={`${id}-error`} message={error} />
     </div>
   );
 }
 
 
-type LookupState = "idle" | "loading" | "found" | "notFound";
+type LookupState = "idle" | "loading" | "found" | "notFound" | "unavailable";
 
 function LibraryLookupStatus({ id, state, message }: { id: string; state: LookupState; message: string }) {
   const icon = {
@@ -814,6 +850,7 @@ function LibraryLookupStatus({ id, state, message }: { id: string; state: Lookup
     loading: <Loader2 aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />,
     found: <CheckCircle2 aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />,
     notFound: <AlertCircle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />,
+    unavailable: <Info aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />,
   }[state];
   return (
     <p id={id} aria-live="polite" className={cn("flex items-start gap-1.5 text-xs", state === "idle" && "sr-only")}>

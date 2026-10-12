@@ -140,4 +140,13 @@ describe("result form", () => {
       .toEqual({ textAr: "ممارسات تغذية أفضل" });
     expect(resultUpdatePayload(nodes[3], resultToValues(nodes[3]))).toEqual({});
   });
+
+  it("accepts the sort order in Arabic-Indic digits", () => {
+    const values = { ...newResultValues(nodes[0]), code: "O3", text: "t", sortOrder: "١٢" };
+    expect(validateResultForm(values, nodes).sortOrder).toBeUndefined();
+    expect(resultCreatePayload(values).sortOrder).toBe(12);
+    expect(resultCreatePayload({ ...values, sortOrder: "0" }).sortOrder).toBe(0);
+    expect(validateResultForm({ ...values, sortOrder: "1.5" }, nodes).sortOrder).toEqual({ key: "sortOrder" });
+    expect(validateResultForm({ ...values, sortOrder: "1000001" }, nodes).sortOrder).toEqual({ key: "sortOrder" });
+  });
 });

@@ -7,6 +7,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { api } from "@/services/api";
 import { toast } from "sonner";
 import { renderWithClient } from "@/test/utils";
+import { ApiError } from "@/lib/apiError";
 import { makeIndicator, sampleResultNodes } from "@/test/fixtures";
 import type { AuthUser } from "@/types/api";
 
@@ -25,6 +26,9 @@ vi.mock("sonner", () => ({
 }));
 
 const nodes = sampleResultNodes();
+
+/** The whole accessible description (the empty error message adds a trailing space). */
+const exactly = (text: string) => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
 
 function renderForm(props: Partial<Parameters<typeof IndicatorForm>[0]> = {}) {
   const onSaved = vi.fn();
@@ -81,7 +85,7 @@ const REFERENCE_SHEET_LABELS = [
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(api.getLibraryEntry).mockRejectedValue(new Error("Library entry not found"));
+  vi.mocked(api.getLibraryEntry).mockRejectedValue(new ApiError("Library entry not found", 404));
 });
 
 describe("IndicatorForm", { timeout: 20_000 }, () => {
@@ -194,6 +198,21 @@ describe("IndicatorForm", { timeout: 20_000 }, () => {
     expect(toast.success).toHaveBeenCalledWith("Indicator saved");
   });
 
+  it("sends the linked result's level with a new result and never sends provenance on edit", async () => {
+    // The API answers 400 when level and result differ, and sets provenance itself on PATCH.
+    const user = userEvent.setup({ delay: null });
+    const indicator = makeIndicator();
+    vi.mocked(api.updateIndicator).mockResolvedValue({ ...indicator, resultId: "o11", level: "output", libraryId: null, provenance: "manual" });
+    renderForm({ mode: "edit", indicator });
+
+    await user.selectOptions(screen.getByLabelText("Result it measures"), "o11");
+    await user.clear(screen.getByLabelText("Library ID"));
+    await user.click(screen.getByRole("button", { name: "Save indicator" }));
+
+    await waitFor(() => expect(api.updateIndicator).toHaveBeenCalledTimes(1));
+    expect(api.updateIndicator).toHaveBeenCalledWith("ind-1", { resultId: "o11", level: "output", libraryId: null });
+  });
+
   it("does not call the API when nothing changed", async () => {
     const user = userEvent.setup({ delay: null });
     const { onCancel } = renderForm({ mode: "edit", indicator: makeIndicator() });
@@ -211,13 +230,58 @@ describe("IndicatorForm", { timeout: 20_000 }, () => {
 
     expect(api.addIndicatorToFramework).not.toHaveBeenCalled();
     const summary = screen.getByRole("alert");
-    expect(summary).toHaveTextContent("Please fix 3 problems before saving.");
+    expect(summary).toHaveTextContent("Please fix 1 problem before saving.");
     expect(summary).toHaveTextContent("Enter the indicator name in English.");
-    expect(summary).toHaveTextContent("Percentages need a numerator.");
+    // The missing numerator and denominator are warnings, not problems.
+    expect(summary).not.toHaveTextContent("numerator");
     const name = screen.getByLabelText(/^Indicator name \(English\)/);
     expect(name).toHaveAttribute("aria-invalid", "true");
     await waitFor(() => expect(name).toHaveFocus());
-    expect(screen.getByText("Percentages need a denominator.", { selector: "p" })).toBeInTheDocument();
+  });
+
+  it("warns about a percentage without numerator and denominator but still saves it", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.addIndicatorToFramework).mockResolvedValue(makeIndicator({ id: "new-2" }));
+    renderForm();
+    await user.type(screen.getByLabelText(/^Indicator name \(English\)/), "% of trainees employed");
+    await user.type(screen.getByLabelText("Unit"), "%");
+
+    const numerator = screen.getByLabelText("Numerator");
+    expect(numerator).not.toHaveAttribute("aria-required");
+    expect(numerator).not.toHaveAttribute("aria-invalid");
+    expect(numerator).toHaveAccessibleDescription(exactly("Percentages need a numerator. You can save now and add it later."));
+    expect(screen.getByLabelText("Denominator")).toHaveAccessibleDescription(exactly("Percentages need a denominator. You can save now and add it later."));
+
+    await user.click(screen.getByRole("button", { name: "Add indicator" }));
+    await waitFor(() => expect(api.addIndicatorToFramework).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.addIndicatorToFramework).mock.calls[0][1]).toMatchObject({ unit: "%", calculation: null });
+  });
+
+  it("does not block an edit on problems already in the stored indicator", async () => {
+    const user = userEvent.setup({ delay: null });
+    const indicator = makeIndicator({
+      calculation: null,
+      disaggregation: ["sex", "Bad Key"],
+      milestones: [{ label: "", date: null, completed: false }],
+    });
+    vi.mocked(api.updateIndicator).mockResolvedValue({ ...indicator, targetValue: "60%" });
+    renderForm({ mode: "edit", indicator });
+
+    const target = screen.getByLabelText("Final target");
+    await user.clear(target);
+    await user.type(target, "60%");
+    await user.click(screen.getByRole("button", { name: "Save indicator" }));
+    await waitFor(() => expect(api.updateIndicator).toHaveBeenCalledWith("ind-1", { targetValue: "60%" }));
+    expect(screen.queryByText(/Please fix/)).not.toBeInTheDocument();
+  });
+
+  it("blocks an edit when a changed field has a problem", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderForm({ mode: "edit", indicator: makeIndicator({ disaggregation: ["sex", "Bad Key"] }) });
+    await user.click(screen.getByRole("button", { name: "Add Age" }));
+    await user.click(screen.getByRole("button", { name: "Save indicator" }));
+    expect(api.updateIndicator).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("“Bad Key” is not a valid group key.");
   });
 
   it("checks dates inline when the field loses focus", async () => {
@@ -268,16 +332,52 @@ describe("IndicatorForm", { timeout: 20_000 }, () => {
     expect(screen.queryByText(/^Pending baseline\./)).not.toBeInTheDocument();
   });
 
-  it("labels AI-suggested indicators until they are approved", () => {
-    const { unmount } = renderForm({ mode: "edit", indicator: makeIndicator({ provenance: "ai_suggested", isApproved: false, aiModel: "claude-sonnet-5-5", promptVersion: "kpi-1.0" }) });
+  it("labels AI-suggested indicators until they or their framework are approved", () => {
+    const aiIndicator = makeIndicator({ provenance: "ai_suggested", isApproved: false, aiModel: "claude-sonnet-5-5", promptVersion: "kpi-1.0" });
+    const { unmount } = renderForm({ mode: "edit", indicator: aiIndicator, frameworkStatus: "client_review" });
     expect(screen.getAllByText("AI suggested — review before approval").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Provenance")).toHaveValue("AI suggested");
     expect(screen.getByLabelText("Provenance")).toHaveAttribute("readonly");
     expect(screen.getByLabelText("AI model")).toHaveValue("claude-sonnet-5-5 · kpi-1.0");
     unmount();
 
-    renderForm({ mode: "edit", indicator: makeIndicator({ provenance: "ai_generated", isApproved: true }) });
+    const approved = renderForm({ mode: "edit", indicator: makeIndicator({ provenance: "ai_generated", isApproved: true }) });
     expect(screen.queryByText("AI suggested — review before approval")).not.toBeInTheDocument();
+    approved.unmount();
+
+    // Approving the framework approves its indicators, even before isApproved reaches the client.
+    for (const frameworkStatus of ["approved", "active"] as const) {
+      const view = renderForm({ mode: "edit", indicator: aiIndicator, frameworkStatus });
+      expect(screen.queryByText("AI suggested — review before approval"), frameworkStatus).not.toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it("sets the level from the linked result and locks it while linked", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderForm();
+    const level = screen.getByLabelText("Level");
+    expect(level).toBeEnabled();
+    await user.selectOptions(level, "impact");
+
+    await user.selectOptions(screen.getByLabelText("Result it measures"), "o11");
+    expect(level).toHaveValue("output");
+    expect(level).toBeDisabled();
+    expect(level).toHaveAccessibleDescription(exactly("Set by the linked result. To choose another level, remove the link first."));
+
+    await user.selectOptions(screen.getByLabelText("Result it measures"), "");
+    expect(level).toBeEnabled();
+    expect(level).not.toHaveAccessibleDescription(/linked result/);
+    await user.selectOptions(level, "activity");
+    expect(level).toHaveValue("activity");
+  });
+
+  it("locks the level of a linked indicator on edit and explains it in Arabic", () => {
+    renderForm({ mode: "edit", indicator: makeIndicator(), lang: "ar" });
+    const level = screen.getByLabelText("المستوى");
+    expect(level).toBeDisabled();
+    expect(level).toHaveValue("outcome");
+    expect(level).toHaveAccessibleDescription(exactly("تحدّده النتيجة المرتبطة. لاختيار مستوى آخر، أزِل الربط أولًا."));
   });
 
   it("shows the matching library entry for a library id", async () => {
@@ -288,6 +388,47 @@ describe("IndicatorForm", { timeout: 20_000 }, () => {
     expect(await screen.findByText("In the library: Food Consumption Score", {}, { timeout: 2000 })).toBeInTheDocument();
     expect(api.getLibraryEntry).toHaveBeenCalledWith("FS-01");
     expect(screen.getByLabelText("Provenance")).toHaveValue("From the indicator library");
+  });
+
+  it("looks up and sends library ids in upper case", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.getLibraryEntry).mockResolvedValue({ id: "FS-01", name: "Food Consumption Score", nameAr: null } as never);
+    vi.mocked(api.addIndicatorToFramework).mockResolvedValue(makeIndicator({ id: "new-3" }));
+    renderForm();
+    await user.type(screen.getByLabelText(/^Indicator name \(English\)/), "Food Consumption Score");
+    await user.type(screen.getByLabelText("Library ID"), " fs-01 ");
+    expect(await screen.findByText("In the library: Food Consumption Score", {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(api.getLibraryEntry).toHaveBeenCalledWith("FS-01");
+    expect(api.getLibraryEntry).not.toHaveBeenCalledWith("fs-01");
+
+    await user.click(screen.getByRole("button", { name: "Add indicator" }));
+    await waitFor(() => expect(api.addIndicatorToFramework).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.addIndicatorToFramework).mock.calls[0][1]).toMatchObject({ libraryId: "FS-01", provenance: "library" });
+  });
+
+  it("says an id is not in the library only when the library answers 404", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { unmount } = renderForm();
+    await user.type(screen.getByLabelText("Library ID"), "XX-99");
+    expect(await screen.findByText(/This ID is not in the indicator library/, {}, { timeout: 2000 })).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(api.getLibraryEntry).mockRejectedValue(new ApiError("API request failed", 500));
+    renderForm();
+    await user.type(screen.getByLabelText("Library ID"), "FS-01");
+    expect(await screen.findByText(/We couldn't check the indicator library just now/, {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(screen.queryByText(/not in the indicator library/)).not.toBeInTheDocument();
+  });
+
+  it("does not put destructive text on a tinted background (contrast)", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderForm();
+    await user.click(screen.getByRole("button", { name: "Add indicator" }));
+    const summary = screen.getByRole("alert");
+    expect(summary.className).not.toMatch(/bg-destructive/);
+    const badge = screen.getByText("1 problem");
+    expect(badge.className).not.toMatch(/bg-destructive/);
+    expect(badge).toHaveClass("text-destructive");
   });
 
   it("shows the server's message when saving fails", async () => {

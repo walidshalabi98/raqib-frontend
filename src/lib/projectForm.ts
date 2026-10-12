@@ -1,6 +1,7 @@
 import type { DonorType, ProjectInput, Sector } from "@/types/api";
 import type { FormErrors } from "@/lib/indicatorForm";
 import { isIsoDate } from "@/lib/dates";
+import { parseNonNegative } from "@/lib/numbers";
 
 /**
  * State, validation and payload of the "Create project" form. Mirrors the
@@ -63,8 +64,10 @@ export function toggleSector(values: ProjectFormValues, sector: Sector, checked:
   return { ...values, additionalSectors: checked ? [...rest, sector] : rest };
 }
 
-const NUMBER = /^\d+(\.\d+)?$/;
-const WHOLE_NUMBER = /^\d+$/;
+/** Budget in USD, or null when the text is not a number from 0 to MAX_BUDGET_USD (Arabic digits and "1,200" accepted). */
+export const parseBudget = (text: string) => parseNonNegative(text, { max: MAX_BUDGET_USD });
+/** Target beneficiaries, or null when the text is not a whole number from 0 to MAX_TARGET_BENEFICIARIES. */
+export const parseBeneficiaries = (text: string) => parseNonNegative(text, { max: MAX_TARGET_BENEFICIARIES, integer: true });
 
 /** Every problem in the form, keyed by field (messages under projectForm.errors). */
 export function validateProjectForm(values: ProjectFormValues): FormErrors {
@@ -79,15 +82,13 @@ export function validateProjectForm(values: ProjectFormValues): FormErrors {
   if (!errors.startDate && !errors.endDate && values.endDate < values.startDate) errors.endDate = { key: "endBeforeStart" };
 
   const budget = values.budgetUsd.trim();
-  if (budget && (!NUMBER.test(budget) || Number(budget) > MAX_BUDGET_USD)) errors.budgetUsd = { key: "number" };
+  if (budget && parseBudget(budget) === null) errors.budgetUsd = { key: "number" };
   const people = values.targetBeneficiaries.trim();
-  if (people && (!WHOLE_NUMBER.test(people) || Number(people) > MAX_TARGET_BENEFICIARIES)) {
-    errors.targetBeneficiaries = { key: "wholeNumber" };
-  }
+  if (people && parseBeneficiaries(people) === null) errors.targetBeneficiaries = { key: "wholeNumber" };
   return errors;
 }
 
-/** Body of POST /api/projects. Empty optional fields are left out. */
+/** Body of POST /api/projects. Empty optional fields are left out; numbers are sent as JSON numbers. */
 export function projectFormToPayload(values: ProjectFormValues): ProjectInput {
   const optional = (v: string) => (v.trim() ? v.trim() : undefined);
   const budget = values.budgetUsd.trim();
@@ -100,10 +101,10 @@ export function projectFormToPayload(values: ProjectFormValues): ProjectInput {
     humanitarian: values.humanitarian,
     donor: values.donor.trim(),
     donorType: values.donorType,
-    budgetUsd: budget ? Number(budget) : undefined,
+    budgetUsd: budget ? (parseBudget(budget) ?? undefined) : undefined,
     startDate: values.startDate,
     endDate: values.endDate,
-    targetBeneficiaries: people ? Number(people) : undefined,
+    targetBeneficiaries: people ? (parseBeneficiaries(people) ?? undefined) : undefined,
     geographicScope: optional(values.geographicScope),
   };
 }

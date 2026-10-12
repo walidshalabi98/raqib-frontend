@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { DirectionProvider } from "@radix-ui/react-direction";
 import { useTranslation } from "react-i18next";
-import type { Indicator, ResultNode } from "@/types/api";
+import type { FrameworkStatus, Indicator, ResultNode } from "@/types/api";
 import { dirFor, type AppLanguage } from "@/i18n";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -17,6 +17,7 @@ export function IndicatorDialog({
   projectId,
   frameworkId,
   indicator,
+  frameworkStatus,
   resultNodes,
   defaultResultId,
   trigger,
@@ -25,6 +26,8 @@ export function IndicatorDialog({
   projectId: string;
   frameworkId: string;
   indicator?: Indicator;
+  /** Status of the framework; AI-made indicators of an approved framework are not labelled for review. */
+  frameworkStatus?: FrameworkStatus | null;
   resultNodes: readonly ResultNode[];
   defaultResultId?: string;
   /** The button that opens the dialog. */
@@ -60,6 +63,7 @@ export function IndicatorDialog({
             projectId={projectId}
             frameworkId={frameworkId}
             indicator={indicator}
+            frameworkStatus={frameworkStatus}
             resultNodes={resultNodes}
             defaultResultId={defaultResultId}
             lang={lang}

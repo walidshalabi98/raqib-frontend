@@ -1,6 +1,7 @@
 import type {
   ClientProvenance,
   CollectionMethod,
+  FrameworkStatus,
   Frequency,
   Indicator,
   IndicatorCalculation,
@@ -223,12 +224,27 @@ export function isAiProvenance(provenance: IndicatorProvenance | null | undefine
   return provenance === "ai_suggested" || provenance === "ai_generated";
 }
 
+/** True once an org admin has approved the framework ("approved", or "active" after it). */
+export function isFrameworkApproved(status: FrameworkStatus | null | undefined): boolean {
+  return status === "approved" || status === "active";
+}
+
 /**
  * The "AI suggested — review before approval" label stays on AI-made
- * indicators until an org admin approves them (CLAUDE.md rule 5).
+ * indicators until an org admin approves them (CLAUDE.md rule 5): the
+ * indicator itself, or its whole framework.
  */
-export function needsAiReviewLabel(provenance: IndicatorProvenance | null | undefined, isApproved: boolean | null | undefined): boolean {
-  return isAiProvenance(provenance) && !isApproved;
+export function needsAiReviewLabel(
+  provenance: IndicatorProvenance | null | undefined,
+  isApproved: boolean | null | undefined,
+  frameworkStatus: FrameworkStatus | null | undefined,
+): boolean {
+  return isAiProvenance(provenance) && !isApproved && !isFrameworkApproved(frameworkStatus);
+}
+
+/** A library id as the library stores it: trimmed and upper-case ("fs-01 " → "FS-01"). */
+export function normaliseLibraryId(value: string): string {
+  return value.trim().toUpperCase();
 }
 
 /** Provenance sent on create: library when a library entry is linked, else manual. */
@@ -290,7 +306,8 @@ const DATE_FIELDS = ["baselineDate", "startDate", "endDate", "actualStartDate", 
 /**
  * Every problem in the form, keyed by field id: "indicatorText",
  * "intermediateTargets.0.date", "milestones.1.label", "disaggregation".
- * An empty object means the form can be saved.
+ * An empty object means the form can be saved. Advice that does not block
+ * saving is in indicatorFormWarnings.
  */
 export function validateIndicatorForm(values: IndicatorFormValues): FormErrors {
   const errors: FormErrors = {};
@@ -301,11 +318,6 @@ export function validateIndicatorForm(values: IndicatorFormValues): FormErrors {
     if (!errors[field] && values[field].trim().length > LIMITS[field]) {
       errors[field] = { key: "tooLong", values: { max: LIMITS[field] } };
     }
-  }
-
-  if (isPercentUnit(values.unit)) {
-    if (!values.numerator.trim()) errors.numerator = { key: "numeratorRequired" };
-    if (!values.denominator.trim()) errors.denominator = { key: "denominatorRequired" };
   }
 
   for (const field of DATE_FIELDS) {
@@ -362,6 +374,43 @@ export function validateIndicatorForm(values: IndicatorFormValues): FormErrors {
   });
 
   return errors;
+}
+
+/**
+ * Advice that does not block saving (messages under indicatorForm.warnings):
+ * a percentage should define its numerator and denominator
+ * (knowledge/me-foundations.md §3). The backend does not require them.
+ */
+export function indicatorFormWarnings(values: IndicatorFormValues): FormErrors {
+  const warnings: FormErrors = {};
+  if (isPercentUnit(values.unit)) {
+    if (!values.numerator.trim()) warnings.numerator = { key: "numerator" };
+    if (!values.denominator.trim()) warnings.denominator = { key: "denominator" };
+  }
+  return warnings;
+}
+
+/** Errors that also depend on other fields: the end date errors compare it with the start. */
+const RELATED_FIELDS: Record<string, readonly (keyof IndicatorFormValues)[]> = {
+  endDate: ["startDate", "endDate"],
+  actualEndDate: ["actualStartDate", "actualEndDate"],
+};
+
+/**
+ * The errors that block saving. On create, all of them. On edit (`initial` =
+ * the stored indicator's values), only those on fields the user changed:
+ * problems already in the stored data are not sent (only changed fields are)
+ * and must not stop the user from saving other changes.
+ */
+export function blockingErrors(errors: FormErrors, values: IndicatorFormValues, initial: IndicatorFormValues | null): FormErrors {
+  if (!initial) return errors;
+  const changed = (field: keyof IndicatorFormValues) => JSON.stringify(values[field]) !== JSON.stringify(initial[field]);
+  const out: FormErrors = {};
+  for (const [key, error] of Object.entries(errors)) {
+    const field = key.split(".")[0] as keyof IndicatorFormValues;
+    if ((RELATED_FIELDS[field] ?? [field]).some(changed)) out[key] = error;
+  }
+  return out;
 }
 
 /** Form sections, in display order. */
@@ -470,7 +519,7 @@ export function formValuesToPayload(values: IndicatorFormValues): IndicatorInput
     targetJustification: textOrNull(values.targetJustification),
     intermediateTargets: intermediateTargets.length > 0 ? intermediateTargets : null,
     currentValue: textOrNull(values.currentValue),
-    libraryId: textOrNull(values.libraryId),
+    libraryId: textOrNull(normaliseLibraryId(values.libraryId)),
     standardReferenceCode: textOrNull(values.standardReferenceCode),
     assumptions: textOrNull(values.assumptions),
     startDate: textOrNull(values.startDate),

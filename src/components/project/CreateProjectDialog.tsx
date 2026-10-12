@@ -104,8 +104,9 @@ export function CreateProjectDialog({ onCreated }: { onCreated?: (project: Proje
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
+      {/* The trigger sits on screens that are not translated yet, so it carries its own lang. */}
       <DialogTrigger asChild>
-        <Button><Plus aria-hidden="true" className="me-1.5 h-4 w-4" /> {t("projectForm.trigger")}</Button>
+        <Button lang={lang}><Plus aria-hidden="true" className="me-1.5 h-4 w-4" /> {t("projectForm.trigger")}</Button>
       </DialogTrigger>
       <DialogContent dir={dir} lang={lang} closeLabel={t("common.close")} className="max-h-[92vh] overflow-y-auto sm:max-w-xl">
         <DirectionProvider dir={dir}>

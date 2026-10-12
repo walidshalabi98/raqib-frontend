@@ -20,7 +20,9 @@ function inSector(project: Project, sector: Sector): boolean {
 export default function Projects() {
   const [search, setSearch] = useState("");
   const [sectorFilter, setSectorFilter] = useState<Sector | "all">("all");
-  const { t } = useTranslation(undefined, { lng: useUserLanguage() });
+  // The page is English until Phase 6; translated parts carry their own lang (WCAG 3.1.2, Arabic font rules in index.css).
+  const lang = useUserLanguage();
+  const { t } = useTranslation(undefined, { lng: lang });
   const [statusFilter, setStatusFilter] = useState("all");
   const [view, setView] = useState<"grid" | "list">("grid");
   const { data: projects = [], isLoading } = useQuery({
@@ -54,8 +56,8 @@ export default function Projects() {
         <Select value={sectorFilter} onValueChange={(v) => setSectorFilter(v as Sector | "all")}>
           <SelectTrigger className="w-36 rounded-lg"><SelectValue placeholder="Sector" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">{t("projects.allSectors")}</SelectItem>
-            {SECTORS.map((s) => <SelectItem key={s} value={s}>{t(`sector.${s}`)}</SelectItem>)}
+            <SelectItem value="all"><span lang={lang}>{t("projects.allSectors")}</span></SelectItem>
+            {SECTORS.map((s) => <SelectItem key={s} value={s}><span lang={lang}>{t(`sector.${s}`)}</span></SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -82,7 +84,7 @@ export default function Projects() {
                   {p.status === "active" ? "Active" : p.status === "setup" ? "Setup" : p.status}
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground mb-3">{p.donor} · {t(`sector.${p.sector}`, { defaultValue: p.sector })} · {p.geographicScope || ''}</p>
+              <p className="text-xs text-muted-foreground mb-3">{p.donor} · <span lang={lang}>{t(`sector.${p.sector}`, { defaultValue: p.sector })}</span> · {p.geographicScope || ''}</p>
             </Link>
           ))}
         </div>
@@ -101,7 +103,7 @@ export default function Projects() {
               {filtered.map((p) => (
                 <tr key={p.id} className="hover:bg-secondary/30 transition-colors">
                   <td className="px-4 py-3"><Link to={`/projects/${p.id}`} className="font-medium text-foreground hover:text-primary">{p.name}</Link></td>
-                  <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">{t(`sector.${p.sector}`, { defaultValue: p.sector })}</td>
+                  <td className="px-4 py-3 hidden md:table-cell text-muted-foreground" lang={lang}>{t(`sector.${p.sector}`, { defaultValue: p.sector })}</td>
                   <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">{p.donor}</td>
                   <td className="px-4 py-3">
                     <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md ${p.status === "active" ? "bg-success/10 text-success" : "bg-secondary text-muted-foreground"}`}>

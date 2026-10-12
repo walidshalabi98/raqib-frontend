@@ -1,6 +1,7 @@
 import type { IndicatorLevel, ResultNode, ResultNodeInput } from "@/types/api";
 import { allowedLevelsUnder, childLevelOf, hasChildResults, parentCandidates } from "@/lib/resultsHierarchy";
 import type { FormErrors } from "@/lib/indicatorForm";
+import { parseNonNegative } from "@/lib/numbers";
 
 /**
  * State, validation and payloads of the results-chain node form. Mirrors the
@@ -10,6 +11,9 @@ import type { FormErrors } from "@/lib/indicatorForm";
  */
 
 export const RESULT_LIMITS = { code: 50, text: 2000, textAr: 2000, sortOrder: 1_000_000 } as const;
+
+/** The sort order as a whole number from 0 to RESULT_LIMITS.sortOrder (Arabic digits accepted), or null. */
+export const parseSortOrder = (text: string) => parseNonNegative(text, { max: RESULT_LIMITS.sortOrder, integer: true });
 
 export interface ResultFormValues {
   level: IndicatorLevel;
@@ -97,7 +101,7 @@ export function validateResultForm(
   if (values.textAr.trim().length > RESULT_LIMITS.textAr) errors.textAr = { key: "tooLong", values: { max: RESULT_LIMITS.textAr } };
 
   const order = values.sortOrder.trim();
-  if (order && (!/^\d+$/.test(order) || Number(order) > RESULT_LIMITS.sortOrder)) errors.sortOrder = { key: "sortOrder" };
+  if (order && parseSortOrder(order) === null) errors.sortOrder = { key: "sortOrder" };
 
   const { levels, parents } = resultFormOptions(values, nodes, editing);
   if (values.parentId && !parents.some((p) => p.id === values.parentId)) errors.parentId = { key: "level" };
@@ -108,14 +112,14 @@ export function validateResultForm(
 
 /** Body of POST /api/frameworks/:id/results. */
 export function resultCreatePayload(values: ResultFormValues): ResultNodeInput {
-  const order = values.sortOrder.trim();
+  const order = parseSortOrder(values.sortOrder);
   return {
     level: values.level,
     code: values.code.trim(),
     text: values.text.trim(),
     textAr: values.textAr.trim() || null,
     parentId: values.parentId || null,
-    ...(order ? { sortOrder: Number(order) } : {}),
+    ...(order !== null ? { sortOrder: order } : {}),
   };
 }
 

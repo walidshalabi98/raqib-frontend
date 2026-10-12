@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { DirectionProvider } from "@radix-ui/react-direction";
 import { useTranslation } from "react-i18next";
@@ -60,15 +60,23 @@ export function ResultsChainPanel({ projectId, frameworkId }: { projectId: strin
   const { t } = useTranslation(undefined, { lng: lang });
   const queryClient = useQueryClient();
   const headingId = useId();
+  const editButtonId = (node: Pick<ResultNode, "id">) => `${headingId}-edit-${node.id}`;
 
   const { data: nodes = [], isLoading, isError, refetch } = useFrameworkResults(frameworkId);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [deleting, setDeleting] = useState<ResultNode | null>(null);
+  // Where focus goes when the confirmation closes (WCAG 2.4.3). The dialog has no trigger to return to:
+  // on cancel focus goes back to the delete button; after a delete that button is gone, so it goes to
+  // the parent result's row, or to the heading.
+  const deleteOpener = useRef<HTMLElement | null>(null);
+  const focusAfterDelete = useRef<string | null>(null);
 
   const deleteMutation = useMutation({
     mutationFn: (node: ResultNode) => api.deleteResultNode(node.id),
-    onSuccess: () => {
+    onSuccess: (_data, node) => {
       toast.success(t("results.toast.deleted"));
+      const parent = nodes.find((n) => n.id === node.parentId);
+      focusAfterDelete.current = parent ? editButtonId(parent) : headingId;
       setDeleting(null);
       void invalidateFrameworkData(queryClient, { projectId, frameworkId });
     },
@@ -86,7 +94,7 @@ export function ResultsChainPanel({ projectId, frameworkId }: { projectId: strin
         <TooltipProvider delayDuration={200}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 space-y-0.5">
-              <h3 id={headingId} className="flex items-center gap-2 text-sm font-semibold">
+              <h3 id={headingId} tabIndex={-1} className="flex items-center gap-2 text-sm font-semibold focus:outline-none">
                 <GitBranch aria-hidden="true" className="h-4 w-4" />
                 {t("results.title")}
               </h3>
@@ -127,9 +135,10 @@ export function ResultsChainPanel({ projectId, frameworkId }: { projectId: strin
               nodes={nodes}
               lang={lang}
               t={t}
+              editButtonId={editButtonId}
               onAddChild={(parent) => setEditing({ mode: "create", parent })}
               onEdit={(node) => setEditing({ mode: "edit", node })}
-              onDelete={(node) => setDeleting(node)}
+              onDelete={(node, opener) => { deleteOpener.current = opener; setDeleting(node); }}
             />
           )}
         </TooltipProvider>
@@ -149,7 +158,21 @@ export function ResultsChainPanel({ projectId, frameworkId }: { projectId: strin
       )}
 
       <AlertDialog open={deleting !== null} onOpenChange={(open) => { if (!open) setDeleting(null); }}>
-        <AlertDialogContent dir={dir} lang={lang}>
+        <AlertDialogContent
+          dir={dir}
+          lang={lang}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const afterDelete = focusAfterDelete.current;
+            const opener = deleteOpener.current;
+            focusAfterDelete.current = null;
+            deleteOpener.current = null;
+            const target = afterDelete
+              ? document.getElementById(afterDelete)
+              : opener?.isConnected ? opener : document.getElementById(headingId);
+            target?.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>{t("results.confirmDeleteTitle", { code: deleting?.code ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription>
@@ -184,6 +207,7 @@ function ResultTreeList({
   nodes,
   lang,
   t,
+  editButtonId,
   nested = false,
   onAddChild,
   onEdit,
@@ -193,10 +217,12 @@ function ResultTreeList({
   nodes: readonly ResultNode[];
   lang: AppLanguage;
   t: T;
+  editButtonId: (node: ResultNode) => string;
   nested?: boolean;
   onAddChild: (parent: ResultNode) => void;
   onEdit: (node: ResultNode) => void;
-  onDelete: (node: ResultNode) => void;
+  /** `opener` is the delete button, to return focus to when the confirmation is cancelled. */
+  onDelete: (node: ResultNode, opener: HTMLElement) => void;
 }) {
   return (
     <ul className={cn("space-y-1", nested && "ms-1.5 border-s ps-2 sm:ms-3 sm:ps-3")}>
@@ -226,7 +252,7 @@ function ResultTreeList({
                       <Plus aria-hidden="true" className="h-4 w-4" />
                     </Button>
                   )}
-                  <Button type="button" variant="ghost" size="icon" className="h-11 w-11 sm:h-8 sm:w-8"
+                  <Button id={editButtonId(node)} type="button" variant="ghost" size="icon" className="h-11 w-11 sm:h-8 sm:w-8"
                     aria-label={t("results.edit", { code: node.code })} title={t("results.edit", { code: node.code })}
                     onClick={() => onEdit(node)}>
                     <Pencil aria-hidden="true" className="h-4 w-4" />
@@ -246,7 +272,7 @@ function ResultTreeList({
                   ) : (
                     <Button type="button" variant="ghost" size="icon" className="h-11 w-11 text-destructive sm:h-8 sm:w-8"
                       aria-label={t("results.delete", { code: node.code })} title={t("results.delete", { code: node.code })}
-                      onClick={() => onDelete(node)}>
+                      onClick={(e) => onDelete(node, e.currentTarget)}>
                       <Trash2 aria-hidden="true" className="h-4 w-4" />
                     </Button>
                   )}
@@ -255,7 +281,7 @@ function ResultTreeList({
               </div>
             </div>
             {children.length > 0 && (
-              <ResultTreeList items={children} nodes={nodes} lang={lang} t={t} nested
+              <ResultTreeList items={children} nodes={nodes} lang={lang} t={t} editButtonId={editButtonId} nested
                 onAddChild={onAddChild} onEdit={onEdit} onDelete={onDelete} />
             )}
           </li>

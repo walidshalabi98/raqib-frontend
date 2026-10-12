@@ -44,6 +44,20 @@ describe("project form", () => {
     expect(validateProjectForm(filled())).toEqual({});
   });
 
+  it("accepts Arabic-Indic digits and thousands separators, as the backend does", () => {
+    for (const [budgetUsd, targetBeneficiaries] of [["٥٠٠٠٠٠", "١٢٠٠"], ["500,000", "1,200"], ["۵۰۰٬۰۰۰", "۱۲۰۰"]]) {
+      const values = { ...filled(), budgetUsd, targetBeneficiaries };
+      expect(validateProjectForm(values), budgetUsd).toEqual({});
+      expect(projectFormToPayload(values)).toMatchObject({ budgetUsd: 500000, targetBeneficiaries: 1200 });
+    }
+    expect(projectFormToPayload({ ...filled(), budgetUsd: "١٢٫٥" }).budgetUsd).toBe(12.5);
+    expect(validateProjectForm({ ...filled(), budgetUsd: "500 USD", targetBeneficiaries: "١٢٫٥" })).toEqual({
+      budgetUsd: { key: "number" },
+      targetBeneficiaries: { key: "wholeNumber" },
+    });
+    expect(validateProjectForm({ ...filled(), budgetUsd: "10000000000" }).budgetUsd).toEqual({ key: "number" });
+  });
+
   it("sends sectors and the humanitarian flag", () => {
     const values = { ...toggleSector(filled(), "cash", true), humanitarian: true, budgetUsd: "250000", targetBeneficiaries: "1200" };
     expect(projectFormToPayload(values)).toEqual({
