@@ -383,7 +383,7 @@ Decisions already made (12 October 2026):
 - **Dropdowns:** keep both the native select (data-entry forms) and the Radix Select (elsewhere); every dropdown must work on phones (375 px, touch), with a keyboard and in Arabic.
 - **Backfill of stored text:** yes — a one-off script removes phone numbers, ID numbers and email addresses from text stored before Phase 3 (`Document.parsedText`, `Document.aiAnalysis`); it is a dry run unless `--apply` is given (`npm run redact:backfill`).
 - **AI call log retention:** `AiCall` rows are kept for 24 months, then deleted by a nightly job (`AI_CALL_RETENTION_MONTHS`).
-- **Qualitative notes:** typed notes are redacted when they are saved, not only before AI calls.
+- **Qualitative notes:** typed notes are redacted when they are saved, not only before AI calls; the backfill also cleans existing notes (`--include-qualitative`).
 - **Midterm assessments** create an `assessment_report` report, like every other assessment type (not `quarterly_summary`).
 - **Verified targets:** keep the wording "Found in the document text".
 - **Failed AI assessments:** Phase 6 adds a retry (backend endpoint and button).
@@ -395,10 +395,10 @@ Decisions already made (12 October 2026):
 
 | Phase | Status | PR | Notes |
 |---|---|---|---|
-| 0 Safety | Merged (SQL pending) | backend #2, frontend #2 | `WebhookToken` SQL not yet applied to the shared Supabase database (project restored 12 October 2026; the Phase 0 → 2 → 3 rehearsal passed on a throwaway project, `docs/DATA_MODEL.md` §9; waiting for the owner's approval to apply); the storage module missing from backend #2 is added in backend #3. |
+| 0 Safety | Merged (SQL applied) | backend #2, frontend #2 | `WebhookToken` SQL applied to the shared Supabase database on 12 October 2026, with the owner's approval, after a rehearsal on a throwaway project (`docs/DATA_MODEL.md` §9); the storage module missing from backend #2 is added in backend #3. |
 | 1 Build | Done | backend #3, frontend #3 | Frontend `npm audit` keeps 5 high findings in Tailwind 3's file-watcher chain (no patched `braces` exists; `lovable-tagger` needs Tailwind 3) — accepted by the owner until the Tailwind upgrade in Phase 6. Lint has 62 `no-explicit-any` warnings until typed API models (Phase 2). |
-| 2 Data model | Merged (SQL pending) | backend #4, frontend #4 | `prisma/sql/2026-10-11_phase2_data_model.sql` not yet applied to the shared Supabase database (verified locally with `npm run verify:migration`; rehearsal passed on 12 October 2026 with the dev seed). Arabic strings: Walid to review. |
-| 3 AI foundation | Merged (SQL pending) | backend #5, frontend #5 | `prisma/sql/2026-10-12_phase3_ai_foundation.sql` (AiCall table, Document.aiAnalysis) not yet applied to Supabase; apply after the Phase 0 and Phase 2 SQL, then run `npm run redact:backfill` (`docs/DATA_MODEL.md` §9). The real-API smoke test (`npm run ai:smoke`) waits for an Anthropic key, which the owner will add later. Follow-up for the 12 October decisions (notes redacted when saved, the backfill script, 24-month `AiCall` retention, midterm assessment report type): in review. |
+| 2 Data model | Merged (SQL applied) | backend #4, frontend #4 | `prisma/sql/2026-10-11_phase2_data_model.sql` applied to the shared Supabase database on 12 October 2026 (verified locally with `npm run verify:migration`, rehearsed with the dev seed). The indicator library is loaded with `npm run seed:library` when the API is deployed. Arabic strings: Walid to review. |
+| 3 AI foundation | Merged (SQL applied) | backend #5, frontend #5 | `prisma/sql/2026-10-12_phase3_ai_foundation.sql` (AiCall table, Document.aiAnalysis) applied to the shared Supabase database on 12 October 2026; when the API is deployed, run `npm run redact:backfill -- --include-qualitative` (`docs/DATA_MODEL.md` §9). The real-API smoke test (`npm run ai:smoke`) waits for an Anthropic key, which the owner will add later. Follow-up for the 12 October decisions (notes redacted when saved, the backfill script, 24-month `AiCall` retention, midterm assessment report type): in review. |
 | 4 KPI Assistant | Not started | | |
 | 5 Active Monitoring | Not started | | |
 | 6 Experience | Not started | | |
