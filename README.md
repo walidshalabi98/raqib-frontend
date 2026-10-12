@@ -45,7 +45,7 @@ Use **npm** only: `package-lock.json` is the single lockfile. Bun lockfiles were
 
 `.github/workflows/ci.yml` runs on every pull request and on `main`: install, lint, typecheck, tests, build, a check that the main bundle stays under 500 kB, and `npm audit --audit-level=critical`.
 
-Known audit findings: Tailwind 3 depends on `chokidar`/`micromatch`/`braces`, and no patched version of `braces` exists. These are build-time tools and are not shipped to browsers. Removing them means moving to Tailwind 4 and dropping `lovable-tagger`, which itself depends on Tailwind 3.
+Known audit findings: Tailwind 3 depends on `chokidar`/`micromatch`/`braces`, and no patched version of `braces` exists. These are build-time tools and are not shipped to browsers. Removing them means moving to Tailwind 4 and dropping `lovable-tagger`, which itself depends on Tailwind 3. The owner accepted these 5 high findings (12 October 2026) until the Tailwind upgrade planned in Phase 6.
 
 ## Project layout
 

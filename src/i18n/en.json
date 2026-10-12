@@ -436,6 +436,12 @@
   "assessments": {
     "failedTitle": "AI generation failed"
   },
+  "qualitative": {
+    "personalDataHint": "Phone numbers, ID numbers and email addresses are removed when you save. Do not type names or addresses of beneficiaries.",
+    "toast": {
+      "redacted": "Phone numbers, ID numbers or email addresses were removed before saving."
+    }
+  },
   "frameworkGeneration": {
     "failedTitle": "Framework generation failed"
   }

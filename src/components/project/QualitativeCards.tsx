@@ -1,7 +1,8 @@
 import { useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { api } from "@/services/api";
-import { Users, MapPin, MessageSquare, FileText, Plus, Loader2, Upload, Brain } from "lucide-react";
+import { Users, MapPin, MessageSquare, FileText, Plus, Loader2, Upload, Brain, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { errorMessage } from "@/lib/utils";
+import { cn, errorMessage } from "@/lib/utils";
+import { removedPersonalData } from "@/lib/redactions";
+import { dirFor, type AppLanguage } from "@/i18n";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { PersonalDataWarning } from "@/components/common/PersonalDataWarning";
 
@@ -28,9 +31,30 @@ const typeLabels: Record<string, string> = {
   community_scorecard: "Community Scorecard", msc_story: "MSC Story", field_notes: "Field Notes",
 };
 
+/**
+ * The hint under the notes and transcript fields: the backend removes phone numbers, ID numbers
+ * and email addresses when an entry is saved, but not names or addresses (CLAUDE.md rule 5).
+ * Text plus icon, linked to the field with aria-describedby (UX standards §5, field warnings).
+ * It carries its own lang and dir, so it reads correctly while the rest of this screen is
+ * untranslated (Phase 6).
+ */
+function PersonalDataHint({ id, lang, className }: { id: string; lang: AppLanguage; className?: string }) {
+  const { t } = useTranslation(undefined, { lng: lang });
+  return (
+    <p id={id} lang={lang} dir={dirFor(lang)} className={cn("flex items-start gap-1.5 text-start text-xs font-medium", className)}>
+      <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+      <span>{t("qualitative.personalDataHint")}</span>
+    </p>
+  );
+}
+
 export function QualitativeCards({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const lang = useUserLanguage();
+  const { t } = useTranslation(undefined, { lng: lang });
+  const contentId = useId();
+  const contentHintId = useId();
+  const uploadHintId = useId();
   const uploadWarningId = useId();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -53,13 +77,15 @@ export function QualitativeCards({ projectId }: { projectId: string }) {
     if (!form.title || !form.content) { toast.error("Please fill in title and content"); return; }
     setSubmitting(true);
     try {
-      await api.addQualitativeEntry(projectId, {
+      const saved = await api.addQualitativeEntry(projectId, {
         ...form, participants: form.participants ? parseInt(form.participants) : undefined, dateConducted: form.dateConducted || undefined,
       });
       queryClient.invalidateQueries({ queryKey: ['qualitative', projectId] });
       setOpen(false);
       setForm({ entryType: "fgd_transcript", title: "", content: "", participants: "", location: "", dateConducted: "", facilitator: "" });
       toast.success("Entry added — AI is analyzing themes...");
+      // No counts in the message: it reads the same for one or many (and needs no Arabic plural forms).
+      if (removedPersonalData(saved?.redactions)) toast.info(t("qualitative.toast.redacted"));
     } catch (err) { toast.error(errorMessage(err, "Failed to add entry")); }
     finally { setSubmitting(false); }
   };
@@ -118,10 +144,11 @@ export function QualitativeCards({ projectId }: { projectId: string }) {
                   <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="FGD with women farmers - Hebron" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Content *</Label>
-                  <textarea value={form.content} onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
+                  <Label htmlFor={contentId}>Content *</Label>
+                  <textarea id={contentId} aria-describedby={contentHintId} value={form.content} onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
                     placeholder="Paste transcript, interview notes, or observations..."
                     className="flex min-h-[120px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                  <PersonalDataHint id={contentHintId} lang={lang} />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><Label>Participants</Label><Input type="number" value={form.participants} onChange={e => setForm(f => ({ ...f, participants: e.target.value }))} placeholder="12" /></div>
@@ -142,8 +169,9 @@ export function QualitativeCards({ projectId }: { projectId: string }) {
                   <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                   <p className="text-sm font-medium">Upload Interview Transcript or FGD Notes</p>
                   <p className="text-xs text-muted-foreground mb-3">PDF, DOCX, or XLSX — AI will extract text and analyze themes</p>
-                  <input type="file" accept=".pdf,.docx,.xlsx" aria-describedby={uploadWarningId} onChange={e => setUploadFile(e.target.files?.[0] || null)}
+                  <input type="file" accept=".pdf,.docx,.xlsx" aria-describedby={`${uploadHintId} ${uploadWarningId}`} onChange={e => setUploadFile(e.target.files?.[0] || null)}
                     className="block w-full text-sm border rounded-md p-2" />
+                  <PersonalDataHint id={uploadHintId} lang={lang} className="mt-2" />
                   <PersonalDataWarning id={uploadWarningId} lang={lang} className="mt-2" />
                   {uploadFile && <p className="text-xs text-green-600 mt-1">Selected: {uploadFile.name}</p>}
                 </div>
