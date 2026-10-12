@@ -111,7 +111,7 @@ export interface Project {
   _count?: Partial<Record<"documents" | "frameworks" | "assessments" | "dataPoints" | "qualitativeEntries" | "reports", number>>;
 }
 
-/** GET /api/projects/:id — the project with its documents and latest framework. */
+/** GET /api/projects/:id — the project with its documents and current framework. */
 export interface ProjectDetail extends Project {
   documents: ProjectDocument[];
   frameworks: Array<Omit<Framework, "resultNodes"> & { resultNodes?: ResultNode[] }>;
@@ -133,17 +133,23 @@ export type ParsingStatus = "pending" | "processing" | "completed" | "failed";
 /** The kind of document the AI analysis recognised (a closed set in the backend schema). */
 export type DocumentAnalysisType = "proposal" | "logframe" | "budget" | "report" | "guidelines" | "other";
 
-/** A target stated in the document, copied as written ("" for any part the document does not state). */
+/**
+ * A target the AI analysis found in the document ("" for any part the document does not state).
+ * `verified` is true only when the backend found the target in the document's redacted text by
+ * string match; rows analysed before that check lack it and are treated as not verified.
+ */
 export interface DocumentTargetMention {
   indicator: string;
   target: string;
   timeline: string;
+  verified?: boolean;
 }
 
 /**
  * Document.aiAnalysis as the backend stores it (document parser, Phase 3).
  * Read it with `documentAnalysisOf` (src/lib/documentAnalysis.ts), which also
- * accepts legacy rows (analysis appended to parsedText) and malformed values.
+ * accepts the legacy shapes the Phase 3 migration moved out of parsedText
+ * (snake_case keys, or `{ legacyText }`, which has nothing to show) and malformed values.
  */
 export interface DocumentAiAnalysis {
   documentType: DocumentAnalysisType;
@@ -152,6 +158,8 @@ export interface DocumentAiAnalysis {
   indicatorsMentioned: string[];
   targetsMentioned: DocumentTargetMention[];
   recommendations: string[];
+  /** Numbers in the summary and key findings that the document text does not contain (absent on older rows). */
+  unverifiedFigures?: string[];
   /** Served model id. */
   model: string;
   promptVersion: string;
@@ -159,6 +167,11 @@ export interface DocumentAiAnalysis {
   analysedAt: string;
 }
 
+/**
+ * A document as GET /api/projects/:id/documents and the upload return it. The API never returns
+ * the extracted text (parsedText) or the storage key (fileUrl); `textLength` says how much text
+ * was extracted.
+ */
 export interface ProjectDocument {
   id: string;
   projectId: string;
@@ -167,10 +180,15 @@ export interface ProjectDocument {
   fileSizeBytes: string | number | null;
   parsingStatus: ParsingStatus;
   uploadedAt: string;
-  /** Extracted text with phone numbers, ID numbers and emails removed (list endpoint only). */
-  parsedText?: string | null;
-  /** The AI analysis (list endpoint only); null until it is ready, or when analysis failed. */
-  aiAnalysis?: DocumentAiAnalysis | null;
+  /** Characters of extracted text (0 when none). Documents with 50 or fewer are never analysed. */
+  textLength?: number;
+  /**
+   * The stored AI analysis; null until it is ready, and for documents that are never analysed
+   * (too little text, an AI failure, or a qualitative transcript). Legacy rows hold older shapes.
+   */
+  aiAnalysis?: DocumentAiAnalysis | Record<string, unknown> | null;
+  /** An FGD/KII transcript uploaded through the qualitative upload: coded there, never analysed as a document. */
+  qualitativeSource?: boolean;
   uploader?: { fullName: string } | null;
 }
 
@@ -252,6 +270,11 @@ export interface Framework {
   generatedAt: string;
   approvedAt: string | null;
   approvedBy: string | null;
+  /**
+   * Why AI generation of this version failed (a safe message), or null. A version with a
+   * generationError is never the project's current framework.
+   */
+  generationError?: string | null;
   /** Ordered by level (impact first), then sortOrder, then code. */
   resultNodes: ResultNode[];
   indicators: Indicator[];
@@ -412,9 +435,11 @@ export interface IndicatorDataResponse {
 /**
  * POST /api/indicators/:id/data (org admins and M&E officers; donor viewers get 403).
  * Numeric values are stored in canonical form ("١٬٢٠٠" and "1,200" become "1200").
- * Breakdown rules follow the indicator's unit: a count needs a numeric value and
- * groups that add up to it; a percentage takes 0–100 per group with no sum; a
- * blank unit is checked as a percentage only when the indicator text reads as one.
+ * Breakdown rules follow the indicator's unit: a count ("number" and aliases such
+ * as people or households) needs a numeric value and groups that add up to it; a
+ * percentage takes 0–100 per group with no sum; ratio, index, score, currency,
+ * time and distance units are not counts (no sum check); a blank unit is checked
+ * as a percentage only when the indicator text reads as one.
  */
 export interface DataPointInput {
   value: string | number;
@@ -490,9 +515,9 @@ export interface GenerateFrameworkResponse {
   id?: string;
 }
 
-export interface GenerationStatus {
-  frameworkId: string;
-  status: string;
-  progress?: string;
-  framework?: Framework;
-}
+/** GET /api/frameworks/:id/status */
+export type GenerationStatus =
+  | { frameworkId: string; status: "processing"; progress?: string }
+  | { frameworkId: string; status: "completed"; progress?: string; framework?: Framework }
+  /** The run failed or was interrupted; `message` is safe to show and says what to do. */
+  | { frameworkId: string; status: "failed"; message: string };

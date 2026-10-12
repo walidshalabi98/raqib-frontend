@@ -7,7 +7,9 @@
     "optional": "optional",
     "notSet": "Not set",
     "retry": "Try again",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "takingLonger": "This is taking longer than expected.",
+    "refresh": "Refresh"
   },
   "language": {
     "en": "English",
@@ -112,7 +114,8 @@
     "disaggregation": "Disaggregation breaks the indicator value down by groups: sex, age, disability, location, displacement status and others."
   },
   "ai": {
-    "suggestedLabel": "AI suggested — review before approval"
+    "suggestedLabel": "AI suggested — review before approval",
+    "personalDataWarning": "Raqib cannot remove names or addresses: do not upload beneficiary lists or files that identify people."
   },
   "indicatorForm": {
     "titleCreate": "Add indicator",
@@ -386,18 +389,24 @@
     "title": "Project documents",
     "upload": "Upload document",
     "uploadTitle": "Upload a project document",
-    "uploadDescription": "Raqib reads the file, removes phone numbers, ID numbers and email addresses, then prepares an AI analysis.",
+    "uploadDescription": "Raqib removes phone numbers, ID numbers and email addresses from the text it sends to the AI.",
     "fileType": "Document type",
     "file": "File",
-    "fileHint": "PDF, Word or Excel (XLSX).",
+    "fileHint": "PDF, Word (.docx) or Excel (.xlsx).",
     "submit": "Upload and analyse",
     "uploading": "Uploading…",
     "loading": "Loading documents…",
     "loadError": "We couldn't load the documents. Check your connection and try again.",
     "empty": "No documents yet. Upload a proposal, logframe or report and Raqib will analyse it.",
     "uploadedOn": "Uploaded {{date}}",
-    "failedHint": "We couldn't read this file. Try a Word file or a text-based PDF.",
+    "failedHint": "We couldn't read this file. Save it as Word (.docx) or a text-based PDF and upload it again.",
+    "noText": "No readable text was found in this file, so it has no AI analysis. If it is a scan, upload a Word (.docx) file or a text-based PDF instead.",
+    "noTextStatus": "No readable text",
+    "transcript": "FGD or KII transcript: coded with the qualitative data, not analysed here.",
+    "refreshOf": "Refresh status: {{name}}",
+    "statusAnnouncement": "{{name}}: {{status}}",
     "analysisPending": "Preparing the AI analysis…",
+    "analysisReady": "AI analysis ready",
     "aiAnalysed": "AI analysis",
     "summaryTitle": "AI summary",
     "viewAnalysis": "View analysis",
@@ -415,10 +424,19 @@
     "target": "Target",
     "timeline": "Timeline",
     "notStated": "Not stated",
-    "targetsNote": "Copied from the document as written. Check each figure against the document before you use it.",
+    "targetsNote": "Raqib looked for each target in the document text. Check every figure against the document before you use it.",
+    "targetFound": "Found in the document text",
+    "targetNotFound": "Not found in the document text — check before use",
+    "unverifiedFigures": "These figures in the summary or findings were not found in the document text — check before use:",
     "toast": {
       "uploaded": "Document uploaded. Raqib is reading it now.",
       "uploadFailed": "We couldn't upload the document."
     }
+  },
+  "assessments": {
+    "failedTitle": "AI generation failed"
+  },
+  "frameworkGeneration": {
+    "failedTitle": "Framework generation failed"
   }
 }

@@ -1,12 +1,16 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { api } from "@/services/api";
 import { ASSESSMENT_STAGES, type Method } from "@/lib/constants";
+import { assessmentFailure, assessmentsNeedRefresh, isAssessmentInProgress } from "@/lib/assessmentStatus";
+import { dirFor } from "@/i18n";
+import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { MethodPill } from "@/components/common/MethodPill";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Loader2, FileText, Brain, CheckCircle2 } from "lucide-react";
+import { AlertCircle, Loader2, FileText, Brain, CheckCircle2 } from "lucide-react";
 
 const stageLabels: Record<string, string> = {
   requested: "Requested", scoping: "Scoping", in_field: "In Field",
@@ -21,11 +25,14 @@ function getStageIndex(status: string): number {
 export function AssessmentPipeline({ projectId }: { projectId: string }) {
   const [viewingReport, setViewingReport] = useState<any>(null);
   const [loadingReport, setLoadingReport] = useState<string | null>(null);
+  const lang = useUserLanguage();
+  const { t } = useTranslation(undefined, { lng: lang });
 
   const { data: assessments = [], isLoading } = useQuery({
     queryKey: ['assessments', projectId],
     queryFn: () => api.getAssessments(projectId),
-    refetchInterval: 10000, // Poll for status updates
+    // Poll only while an AI report is being generated: never for a failed one, and not beyond the wait.
+    refetchInterval: (query) => (assessmentsNeedRefresh(query.state.data ?? [], Date.now()) ? 10000 : false),
   });
 
   const viewReport = async (assessmentId: string) => {
@@ -58,7 +65,8 @@ export function AssessmentPipeline({ projectId }: { projectId: string }) {
         const activeIdx = getStageIndex(a.status);
         const methods: string[] = Array.isArray(a.methodsIncluded) ? a.methodsIncluded : [];
         const isDelivered = a.status === 'delivered';
-        const isProcessing = ['scoping', 'in_field', 'data_cleaning', 'analysis', 'reporting'].includes(a.status);
+        const failure = assessmentFailure(a);
+        const isProcessing = isAssessmentInProgress(a);
 
         return (
           <div key={a.id} className="card-surface p-5">
@@ -75,6 +83,18 @@ export function AssessmentPipeline({ projectId }: { projectId: string }) {
                     <Badge className="text-[10px] bg-green-100 text-green-700">
                       <CheckCircle2 className="h-3 w-3 mr-1" /> Complete
                     </Badge>
+                  )}
+                </div>
+                {/* A failure that arrives by polling is announced. */}
+                <div aria-live="polite">
+                  {failure !== null && (
+                    <div lang={lang} dir={dirFor(lang)} className="mt-2 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                      <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                      <div className="min-w-0 space-y-1">
+                        <p className="font-medium">{t("assessments.failedTitle")}</p>
+                        {failure && <p dir="auto" lang="en" className="break-words">{failure}</p>}
+                      </div>
+                    </div>
                   )}
                 </div>
                 <div className="flex gap-1.5 mt-1.5 flex-wrap">

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/services/api";
 import { Users, MapPin, MessageSquare, FileText, Plus, Loader2, Upload, Brain } from "lucide-react";
@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/utils";
+import { useUserLanguage } from "@/i18n/useUserLanguage";
+import { PersonalDataWarning } from "@/components/common/PersonalDataWarning";
 
 const sentimentColor: Record<string, string> = {
   positive: "bg-success", mixed: "bg-warning", negative: "bg-danger", neutral: "bg-muted-foreground",
@@ -28,6 +30,8 @@ const typeLabels: Record<string, string> = {
 
 export function QualitativeCards({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
+  const lang = useUserLanguage();
+  const uploadWarningId = useId();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -138,8 +142,9 @@ export function QualitativeCards({ projectId }: { projectId: string }) {
                   <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                   <p className="text-sm font-medium">Upload Interview Transcript or FGD Notes</p>
                   <p className="text-xs text-muted-foreground mb-3">PDF, DOCX, or XLSX — AI will extract text and analyze themes</p>
-                  <input type="file" accept=".pdf,.docx,.doc,.xlsx" onChange={e => setUploadFile(e.target.files?.[0] || null)}
+                  <input type="file" accept=".pdf,.docx,.xlsx" aria-describedby={uploadWarningId} onChange={e => setUploadFile(e.target.files?.[0] || null)}
                     className="block w-full text-sm border rounded-md p-2" />
+                  <PersonalDataWarning id={uploadWarningId} lang={lang} className="mt-2" />
                   {uploadFile && <p className="text-xs text-green-600 mt-1">Selected: {uploadFile.name}</p>}
                 </div>
                 <div className="space-y-1.5">

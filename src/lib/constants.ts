@@ -113,18 +113,32 @@ export const DISAGGREGATION_SUGGESTIONS = [
   "sex_of_household_head",
 ] as const;
 
-/** Units used by the indicator library (knowledge/indicator-library.json meta.enums.unit). */
+/**
+ * Indicator units offered as suggestions: the shared unit list of the backend
+ * (raqib-backend src/services/ai/prompts/framework.ts, the framework schema's unit
+ * enum). Only "number" is a count unit (breakdown groups must add up to the value);
+ * ratio, index, score, currency, time and distance units are not.
+ */
 export const UNIT_SUGGESTIONS = [
   "number",
   "percent",
   "score",
+  "ratio",
+  "index",
   "litres_per_person_per_day",
   "hectares",
   "dunums",
   "megawatts",
   "tonnes_co2eq",
   "currency_ils",
+  "currency_usd",
+  "currency_eur",
+  "currency_jod",
   "kg_per_dunum",
+  "days",
+  "hours",
+  "minutes",
+  "km",
   "yes_no",
 ] as const;
 

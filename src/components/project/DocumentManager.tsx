@@ -1,17 +1,21 @@
-import { useId, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DirectionProvider } from "@radix-ui/react-direction";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   Clock,
   Eye,
   File as FileIcon,
   FileSpreadsheet,
   FileText,
+  Info,
   Loader2,
+  MessagesSquare,
+  RefreshCw,
   Sparkles,
   Upload,
   type LucideIcon,
@@ -22,7 +26,14 @@ import { dirFor, type AppLanguage } from "@/i18n";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { DOCUMENT_FILE_TYPES } from "@/lib/constants";
 import { formatDisplayDate } from "@/lib/dates";
-import { documentAnalysisOf, documentsNeedRefresh, isAnalysisPending, type DocumentAnalysisView } from "@/lib/documentAnalysis";
+import {
+  documentAnalysisOf,
+  documentRowState,
+  documentsNeedRefresh,
+  nextWaitDeadline,
+  type DocumentAnalysisView,
+  type DocumentRowState,
+} from "@/lib/documentAnalysis";
 import { queryKeys } from "@/lib/queryKeys";
 import { cn, errorMessage } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,15 +43,20 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/common/NativeSelect";
+import { PersonalDataWarning } from "@/components/common/PersonalDataWarning";
 
 /**
  * The project's documents: upload, parsing status and the AI analysis
- * (Document.aiAnalysis, or the legacy copy in parsedText). The analysis is AI
- * content and is always labelled as such. Phase 6 redesigns this screen.
+ * (Document.aiAnalysis). The analysis is AI content and is always labelled as
+ * such; targets and figures the backend did not find in the document text are
+ * marked. Phase 6 redesigns this screen.
  */
 
-/** How often the list refreshes while a document is being read or awaits its analysis. */
+/** How often the list refreshes while a document is being read or awaits its analysis (at most DOCUMENT_WAIT_MS after upload). */
 const REFRESH_MS = 10_000;
+
+/** The file types the backend accepts (Word 97–2003 .doc files cannot be read and are refused). */
+const ACCEPTED_FILES = ".pdf,.docx,.xlsx";
 
 const FILE_TYPE_ICONS: Record<DocumentFileType, LucideIcon> = {
   proposal: FileText,
@@ -66,14 +82,23 @@ export default function DocumentManager({ projectId }: { projectId: string }) {
   const { t } = useTranslation(undefined, { lng: lang });
   const headingId = useId();
 
-  // "Now" is when the list was fetched, so the refresh decision and the rows agree.
-  const { data, isLoading, isError, refetch, dataUpdatedAt } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch, dataUpdatedAt } = useQuery({
     queryKey: queryKeys.documents(projectId),
     queryFn: () => api.getDocuments(projectId),
-    refetchInterval: (query) =>
-      documentsNeedRefresh(query.state.data ?? [], query.state.dataUpdatedAt) ? REFRESH_MS : false,
+    // The real time, not when the list was last fetched: during an outage that would never move on.
+    refetchInterval: (query) => (documentsNeedRefresh(query.state.data ?? [], Date.now()) ? REFRESH_MS : false),
   });
   const documents = data ?? [];
+
+  // The time the rows are drawn for: the last fetch, or later when a row's wait ends without one.
+  const [clock, setClock] = useState(() => Date.now());
+  const now = Math.max(clock, dataUpdatedAt);
+  useEffect(() => {
+    const deadline = nextWaitDeadline(data ?? [], now);
+    if (deadline === null) return;
+    const timer = setTimeout(() => setClock(Date.now()), Math.max(0, deadline - Date.now()) + 1);
+    return () => clearTimeout(timer);
+  }, [data, now]);
 
   return (
     <section aria-labelledby={headingId} dir={dir} lang={lang} className="space-y-4">
@@ -93,7 +118,7 @@ export default function DocumentManager({ projectId }: { projectId: string }) {
           <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border p-4 text-sm">
             <AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-destructive" />
             <span className="min-w-0 flex-1">{t("documents.loadError")}</span>
-            <Button size="sm" variant="outline" onClick={() => void refetch()}>{t("common.retry")}</Button>
+            <Button size="sm" variant="outline" className="min-h-11 sm:min-h-9" onClick={() => void refetch()}>{t("common.retry")}</Button>
           </div>
         ) : documents.length === 0 ? (
           <Card>
@@ -106,7 +131,7 @@ export default function DocumentManager({ projectId }: { projectId: string }) {
           <ul className="space-y-3">
             {documents.map((doc) => (
               <li key={doc.id}>
-                <DocumentRow doc={doc} lang={lang} now={dataUpdatedAt} />
+                <DocumentRow doc={doc} lang={lang} now={now} refreshing={isFetching} onRefresh={() => void refetch()} />
               </li>
             ))}
           </ul>
@@ -123,6 +148,7 @@ function UploadDocumentDialog({ projectId, lang }: { projectId: string; lang: Ap
   const typeId = useId();
   const fileId = useId();
   const fileHintId = useId();
+  const warningId = useId();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [fileType, setFileType] = useState<DocumentFileType>("proposal");
@@ -154,7 +180,7 @@ function UploadDocumentDialog({ projectId, lang }: { projectId: string; lang: Ap
       }}
     >
       <DialogTrigger asChild>
-        <Button>
+        <Button className="min-h-11 sm:min-h-10">
           <Upload aria-hidden="true" className="me-2 h-4 w-4" />
           {t("documents.upload")}
         </Button>
@@ -179,14 +205,15 @@ function UploadDocumentDialog({ projectId, lang }: { projectId: string; lang: Ap
               <input
                 id={fileId}
                 type="file"
-                accept=".pdf,.docx,.doc,.xlsx"
-                aria-describedby={fileHintId}
+                accept={ACCEPTED_FILES}
+                aria-describedby={`${fileHintId} ${warningId}`}
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="block w-full rounded-md border border-input bg-background p-2 text-sm"
+                className="block min-h-11 w-full rounded-md border border-input bg-background p-2 text-sm"
               />
               <p id={fileHintId} className="text-xs text-muted-foreground">{t("documents.fileHint")}</p>
+              <PersonalDataWarning id={warningId} lang={lang} />
             </div>
-            <Button type="submit" disabled={!file || upload.isPending} className="w-full">
+            <Button type="submit" disabled={!file || upload.isPending} className="min-h-11 w-full sm:min-h-10">
               {upload.isPending ? (
                 <>
                   <Loader2 aria-hidden="true" className="me-2 h-4 w-4 animate-spin" />
@@ -203,10 +230,36 @@ function UploadDocumentDialog({ projectId, lang }: { projectId: string; lang: Ap
   );
 }
 
-function DocumentRow({ doc, lang, now }: { doc: ProjectDocument; lang: AppLanguage; now: number }) {
+/** The short status each row state announces to screen readers. */
+const ROW_STATE_STATUS: Record<DocumentRowState, string> = {
+  pending: "parsingStatus.pending",
+  processing: "parsingStatus.processing",
+  stalled: "common.takingLonger",
+  failed: "parsingStatus.failed",
+  noText: "documents.noTextStatus",
+  transcript: "parsingStatus.completed",
+  analysing: "documents.analysisPending",
+  noAnalysis: "documents.noAnalysis",
+  analysed: "documents.analysisReady",
+};
+
+function DocumentRow({
+  doc,
+  lang,
+  now,
+  refreshing,
+  onRefresh,
+}: {
+  doc: ProjectDocument;
+  lang: AppLanguage;
+  now: number;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
   const { t } = useTranslation(undefined, { lng: lang });
-  const analysis = documentAnalysisOf(doc);
-  const waitingForAnalysis = !analysis && isAnalysisPending(doc, now);
+  const stalledId = useId();
+  const state = documentRowState(doc, now);
+  const analysis = state === "analysed" ? documentAnalysisOf(doc) : null;
   const Icon = FILE_TYPE_ICONS[doc.fileType] ?? FileIcon;
   const uploaded = formatDisplayDate(doc.uploadedAt, lang);
 
@@ -222,7 +275,7 @@ function DocumentRow({ doc, lang, now }: { doc: ProjectDocument; lang: AppLangua
                 <Badge variant="outline" className="text-xs font-medium">
                   {t(`documentType.${doc.fileType}`, { defaultValue: doc.fileType })}
                 </Badge>
-                <ParsingStatusBadge status={doc.parsingStatus} lang={lang} />
+                <ParsingStatusBadge status={doc.parsingStatus} stalled={state === "stalled"} lang={lang} />
                 {analysis && (
                   <Badge variant="outline" className="gap-1 text-xs font-medium">
                     <Sparkles aria-hidden="true" className="h-3 w-3" />
@@ -236,18 +289,45 @@ function DocumentRow({ doc, lang, now }: { doc: ProjectDocument; lang: AppLangua
           {analysis && <AnalysisDialog doc={doc} analysis={analysis} lang={lang} />}
         </div>
 
-        {doc.parsingStatus === "failed" && (
-          <p className="flex items-start gap-1.5 text-sm">
-            <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-            {t("documents.failedHint")}
-          </p>
-        )}
+        {/* Changes that arrive by polling (read failure, analysis ready…) are announced with the file name. */}
+        <p role="status" className="sr-only">
+          {t("documents.statusAnnouncement", { name: doc.fileName, status: t(ROW_STATE_STATUS[state]) })}
+        </p>
 
-        {waitingForAnalysis && (
+        {state === "failed" && <RowHint icon={AlertCircle} iconClass="text-destructive">{t("documents.failedHint")}</RowHint>}
+
+        {state === "noText" && <RowHint icon={AlertCircle} iconClass="text-warning">{t("documents.noText")}</RowHint>}
+
+        {state === "transcript" && <RowHint icon={MessagesSquare} iconClass="text-muted-foreground">{t("documents.transcript")}</RowHint>}
+
+        {state === "noAnalysis" && <RowHint icon={Info} iconClass="text-muted-foreground">{t("documents.noAnalysis")}</RowHint>}
+
+        {state === "analysing" && (
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin" />
             {t("documents.analysisPending")}
           </p>
+        )}
+
+        {state === "stalled" && (
+          <div className="flex flex-wrap items-center gap-3">
+            <p id={stalledId} className="flex min-w-0 flex-1 items-start gap-1.5 text-sm">
+              <Clock aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              {t("common.takingLonger")}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="min-h-11 shrink-0 sm:min-h-9"
+              aria-label={t("documents.refreshOf", { name: doc.fileName })}
+              aria-describedby={stalledId}
+              // Not disabled while fetching: a focused button that becomes disabled loses keyboard focus.
+              onClick={onRefresh}
+            >
+              <RefreshCw aria-hidden="true" className={cn("me-1.5 h-4 w-4", refreshing && "animate-spin")} />
+              {t("common.refresh")}
+            </Button>
+          </div>
         )}
 
         {analysis && (
@@ -258,6 +338,7 @@ function DocumentRow({ doc, lang, now }: { doc: ProjectDocument; lang: AppLangua
             </div>
             {analysis.summary && <p dir="auto" className="break-words text-sm">{analysis.summary}</p>}
             {analysis.keyFindings.length > 0 && <TextList items={analysis.keyFindings.slice(0, 3)} className="text-xs text-muted-foreground" />}
+            <UnverifiedFigures figures={analysis.unverifiedFigures} lang={lang} />
           </div>
         )}
       </CardContent>
@@ -265,13 +346,44 @@ function DocumentRow({ doc, lang, now }: { doc: ProjectDocument; lang: AppLangua
   );
 }
 
-function ParsingStatusBadge({ status, lang }: { status: ParsingStatus; lang: AppLanguage }) {
+/** One line of explanation under a document, with its icon (status is never shown by colour alone). */
+function RowHint({ icon: HintIcon, iconClass, children }: { icon: LucideIcon; iconClass: string; children: ReactNode }) {
+  return (
+    <p className="flex items-start gap-1.5 text-sm">
+      <HintIcon aria-hidden="true" className={cn("mt-0.5 h-4 w-4 shrink-0", iconClass)} />
+      <span>{children}</span>
+    </p>
+  );
+}
+
+/** Numbers in the AI summary or findings that the backend did not find in the document text. */
+function UnverifiedFigures({ figures, lang }: { figures: readonly string[]; lang: AppLanguage }) {
+  const { t } = useTranslation(undefined, { lng: lang });
+  if (figures.length === 0) return null;
+  return (
+    <div className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs font-medium">
+      <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+      <p className="min-w-0 break-words">
+        {t("documents.unverifiedFigures")}{" "}
+        {figures.map((figure, i) => (
+          <span key={figure}>
+            {i > 0 && ", "}
+            <bdi>{figure}</bdi>
+          </span>
+        ))}
+      </p>
+    </div>
+  );
+}
+
+/** A stalled document keeps its status text, but its icon no longer suggests progress. */
+function ParsingStatusBadge({ status, stalled, lang }: { status: ParsingStatus; stalled: boolean; lang: AppLanguage }) {
   const { t } = useTranslation(undefined, { lng: lang });
   const style = PARSING_STATUS_STYLE[status] ?? PARSING_STATUS_STYLE.pending;
-  const Icon = style.icon;
+  const Icon = stalled ? Clock : style.icon;
   return (
     <Badge variant="outline" className={cn("gap-1 text-xs font-medium text-foreground", style.badge)}>
-      <Icon aria-hidden="true" className={cn("h-3 w-3", style.iconClass)} />
+      <Icon aria-hidden="true" className={cn("h-3 w-3", stalled ? "text-warning" : style.iconClass)} />
       {t(`parsingStatus.${status}`, { defaultValue: status })}
     </Badge>
   );
@@ -348,6 +460,7 @@ function AnalysisDialog({ doc, analysis, lang }: { doc: ProjectDocument; analysi
                 <TextList items={analysis.keyFindings} className="text-sm" />
               </AnalysisSection>
             )}
+            <UnverifiedFigures figures={analysis.unverifiedFigures} lang={lang} />
             {analysis.indicatorsMentioned.length > 0 && (
               <AnalysisSection title={t("documents.sections.indicatorsMentioned")}>
                 <ul className="flex flex-wrap gap-1">
@@ -382,6 +495,7 @@ function AnalysisDialog({ doc, analysis, lang }: { doc: ProjectDocument; analysi
                           </>
                         )}
                       </dl>
+                      {mention.target && <TargetCheck verified={mention.verified} lang={lang} />}
                     </li>
                   ))}
                 </ul>
@@ -397,5 +511,21 @@ function AnalysisDialog({ doc, analysis, lang }: { doc: ProjectDocument; analysi
         </DirectionProvider>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Whether the backend found a target in the document text: only found targets may be read as copied from it. */
+function TargetCheck({ verified, lang }: { verified: boolean; lang: AppLanguage }) {
+  const { t } = useTranslation(undefined, { lng: lang });
+  return verified ? (
+    <p className="mt-1.5 flex items-start gap-1 text-xs text-muted-foreground">
+      <CheckCircle2 aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+      {t("documents.targetFound")}
+    </p>
+  ) : (
+    <p className="mt-1.5 flex items-start gap-1 text-xs font-medium">
+      <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+      {t("documents.targetNotFound")}
+    </p>
   );
 }
