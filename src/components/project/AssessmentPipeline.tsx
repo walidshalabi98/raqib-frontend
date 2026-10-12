@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/services/api";
-import { ASSESSMENT_STAGES, Method } from "@/data/mockData";
+import { ASSESSMENT_STAGES, type Method } from "@/lib/constants";
 import { MethodPill } from "@/components/common/MethodPill";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";

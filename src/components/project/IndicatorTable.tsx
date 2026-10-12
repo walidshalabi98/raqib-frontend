@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { api } from "@/services/api";
+import type { Indicator, Milestone, ResultNode } from "@/types/api";
 import { MethodPill } from "@/components/common/MethodPill";
 import { StatusDot } from "@/components/common/StatusDot";
 import { LevelBadge } from "@/components/common/LevelBadge";
@@ -8,22 +10,28 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { IndicatorDialog } from "@/components/project/IndicatorDialog";
+import { ResultsChainPanel } from "@/components/project/ResultsChainPanel";
+import { useFrameworkResults } from "@/hooks/useFrameworkData";
+import { useUserLanguage } from "@/i18n/useUserLanguage";
+import { needsAiReviewLabel } from "@/lib/indicatorForm";
+import { queryKeys } from "@/lib/queryKeys";
 import {
-  ChevronDown, ChevronRight, Loader2, Plus, Pencil, Save, X,
-  Calendar, AlertTriangle, Clock, CheckCircle2, Users,
+  ChevronDown, ChevronRight, Loader2, Plus, Pencil,
+  AlertTriangle, Clock, CheckCircle2, Users, Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/utils";
+
+type TimelineFields = Pick<Indicator, "startDate" | "endDate" | "status">;
 
 function formatDate(d: string | null | undefined) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" });
 }
 
-function getTimelineStatus(ind: any) {
+function getTimelineStatus(ind: TimelineFields) {
   if (!ind.startDate || !ind.endDate) return null;
   const now = new Date();
   const start = new Date(ind.startDate);
@@ -38,7 +46,7 @@ function getTimelineStatus(ind: any) {
   return { progress, isOverdue, daysLeft, start, end };
 }
 
-function TimelineBar({ ind }: { ind: any }) {
+function TimelineBar({ ind }: { ind: TimelineFields }) {
   const tl = getTimelineStatus(ind);
   if (!tl) return <span className="text-xs text-muted-foreground">No timeline</span>;
 
@@ -75,268 +83,6 @@ function TimelineBar({ ind }: { ind: any }) {
         )}
       </div>
     </div>
-  );
-}
-
-// Edit indicator dialog
-function EditIndicatorDialog({ ind, onSaved }: { ind: any; onSaved: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    indicatorText: ind.indicatorText || "",
-    level: ind.level || "output",
-    dataCollectionMethod: ind.dataCollectionMethod || "hh_survey",
-    frequency: ind.frequency || "quarterly",
-    baselineValue: ind.baselineValue || "",
-    targetValue: ind.targetValue || "",
-    currentValue: ind.currentValue || "",
-    unit: ind.unit || "",
-    status: ind.status || "not_started",
-    responsibility: ind.responsibility || "",
-    startDate: ind.startDate ? ind.startDate.split("T")[0] : "",
-    endDate: ind.endDate ? ind.endDate.split("T")[0] : "",
-    actualStartDate: ind.actualStartDate ? ind.actualStartDate.split("T")[0] : "",
-    actualEndDate: ind.actualEndDate ? ind.actualEndDate.split("T")[0] : "",
-  });
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await api.updateIndicator(ind.id, {
-        ...form,
-        startDate: form.startDate || null,
-        endDate: form.endDate || null,
-        actualStartDate: form.actualStartDate || null,
-        actualEndDate: form.actualEndDate || null,
-      });
-      toast.success("Indicator updated");
-      setOpen(false);
-      onSaved();
-    } catch (err) {
-      toast.error(errorMessage(err, "Failed to update"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-7 px-2">
-          <Pencil className="h-3 w-3 mr-1" /> Edit
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Edit Indicator</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 pt-2">
-          <div>
-            <Label>Indicator Text</Label>
-            <textarea
-              value={form.indicatorText}
-              onChange={(e) => setForm((f) => ({ ...f, indicatorText: e.target.value }))}
-              className="flex min-h-[60px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm mt-1"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Level</Label>
-              <Select value={form.level} onValueChange={(v) => setForm((f) => ({ ...f, level: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="impact">Impact</SelectItem>
-                  <SelectItem value="outcome">Outcome</SelectItem>
-                  <SelectItem value="output">Output</SelectItem>
-                  <SelectItem value="activity">Activity</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Method</Label>
-              <Select value={form.dataCollectionMethod} onValueChange={(v) => setForm((f) => ({ ...f, dataCollectionMethod: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="hh_survey">HH Survey</SelectItem>
-                  <SelectItem value="fgd">FGD</SelectItem>
-                  <SelectItem value="kii">KII</SelectItem>
-                  <SelectItem value="observation">Observation</SelectItem>
-                  <SelectItem value="document_review">Document Review</SelectItem>
-                  <SelectItem value="participatory">Participatory</SelectItem>
-                  <SelectItem value="secondary_data">Secondary Data</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Frequency</Label>
-              <Select value={form.frequency} onValueChange={(v) => setForm((f) => ({ ...f, frequency: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="quarterly">Quarterly</SelectItem>
-                  <SelectItem value="biannual">Biannual</SelectItem>
-                  <SelectItem value="annual">Annual</SelectItem>
-                  <SelectItem value="per_cohort">Per Cohort</SelectItem>
-                  <SelectItem value="baseline_endline">Baseline/Endline</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Status</Label>
-              <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="not_started">Not Started</SelectItem>
-                  <SelectItem value="on_track">On Track</SelectItem>
-                  <SelectItem value="at_risk">At Risk</SelectItem>
-                  <SelectItem value="off_track">Off Track</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div><Label>Baseline</Label><Input className="mt-1" value={form.baselineValue} onChange={(e) => setForm((f) => ({ ...f, baselineValue: e.target.value }))} /></div>
-            <div><Label>Target</Label><Input className="mt-1" value={form.targetValue} onChange={(e) => setForm((f) => ({ ...f, targetValue: e.target.value }))} /></div>
-            <div><Label>Current</Label><Input className="mt-1" value={form.currentValue} onChange={(e) => setForm((f) => ({ ...f, currentValue: e.target.value }))} /></div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><Label>Unit</Label><Input className="mt-1" placeholder="%, number, etc." value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))} /></div>
-            <div><Label>Responsible</Label><Input className="mt-1" placeholder="M&E Officer" value={form.responsibility} onChange={(e) => setForm((f) => ({ ...f, responsibility: e.target.value }))} /></div>
-          </div>
-
-          <div className="border-t pt-4">
-            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2"><Calendar className="h-4 w-4" /> Timeline</h4>
-            <div className="grid grid-cols-2 gap-3">
-              <div><Label>Planned Start</Label><Input type="date" className="mt-1" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} /></div>
-              <div><Label>Planned End</Label><Input type="date" className="mt-1" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} /></div>
-              <div><Label>Actual Start</Label><Input type="date" className="mt-1" value={form.actualStartDate} onChange={(e) => setForm((f) => ({ ...f, actualStartDate: e.target.value }))} /></div>
-              <div><Label>Actual End</Label><Input type="date" className="mt-1" value={form.actualEndDate} onChange={(e) => setForm((f) => ({ ...f, actualEndDate: e.target.value }))} /></div>
-            </div>
-          </div>
-
-          <Button className="w-full" onClick={handleSave} disabled={saving}>
-            {saving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...</> : <><Save className="h-4 w-4 mr-1.5" /> Save Changes</>}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Add indicator dialog
-function AddIndicatorDialog({ frameworkId, onAdded }: { frameworkId: string; onAdded: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    indicatorText: "",
-    level: "output",
-    dataCollectionMethod: "hh_survey",
-    frequency: "quarterly",
-    baselineValue: "",
-    targetValue: "",
-    unit: "",
-    responsibility: "",
-    startDate: "",
-    endDate: "",
-  });
-
-  const handleSave = async () => {
-    if (!form.indicatorText.trim()) { toast.error("Indicator text is required"); return; }
-    setSaving(true);
-    try {
-      await api.addIndicatorToFramework(frameworkId, {
-        ...form,
-        startDate: form.startDate || undefined,
-        endDate: form.endDate || undefined,
-      });
-      toast.success("Indicator added");
-      setOpen(false);
-      setForm({ indicatorText: "", level: "output", dataCollectionMethod: "hh_survey", frequency: "quarterly", baselineValue: "", targetValue: "", unit: "", responsibility: "", startDate: "", endDate: "" });
-      onAdded();
-    } catch (err) {
-      toast.error(errorMessage(err, "Failed to add indicator"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm"><Plus className="h-4 w-4 mr-1.5" /> Add Indicator</Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>Add Custom Indicator</DialogTitle></DialogHeader>
-        <div className="space-y-4 pt-2">
-          <div>
-            <Label>Indicator Text *</Label>
-            <textarea value={form.indicatorText} onChange={(e) => setForm((f) => ({ ...f, indicatorText: e.target.value }))}
-              placeholder="e.g. Number of women who report improved income..."
-              className="flex min-h-[60px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm mt-1" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Level</Label>
-              <Select value={form.level} onValueChange={(v) => setForm((f) => ({ ...f, level: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="impact">Impact</SelectItem>
-                  <SelectItem value="outcome">Outcome</SelectItem>
-                  <SelectItem value="output">Output</SelectItem>
-                  <SelectItem value="activity">Activity</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Method</Label>
-              <Select value={form.dataCollectionMethod} onValueChange={(v) => setForm((f) => ({ ...f, dataCollectionMethod: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="hh_survey">HH Survey</SelectItem>
-                  <SelectItem value="fgd">FGD</SelectItem>
-                  <SelectItem value="kii">KII</SelectItem>
-                  <SelectItem value="observation">Observation</SelectItem>
-                  <SelectItem value="document_review">Document Review</SelectItem>
-                  <SelectItem value="participatory">Participatory</SelectItem>
-                  <SelectItem value="secondary_data">Secondary Data</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div><Label>Baseline</Label><Input className="mt-1" value={form.baselineValue} onChange={(e) => setForm((f) => ({ ...f, baselineValue: e.target.value }))} /></div>
-            <div><Label>Target</Label><Input className="mt-1" value={form.targetValue} onChange={(e) => setForm((f) => ({ ...f, targetValue: e.target.value }))} /></div>
-            <div><Label>Unit</Label><Input className="mt-1" placeholder="%" value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))} /></div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><Label>Responsible</Label><Input className="mt-1" placeholder="M&E Officer" value={form.responsibility} onChange={(e) => setForm((f) => ({ ...f, responsibility: e.target.value }))} /></div>
-            <div>
-              <Label>Frequency</Label>
-              <Select value={form.frequency} onValueChange={(v) => setForm((f) => ({ ...f, frequency: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="quarterly">Quarterly</SelectItem>
-                  <SelectItem value="biannual">Biannual</SelectItem>
-                  <SelectItem value="annual">Annual</SelectItem>
-                  <SelectItem value="baseline_endline">Baseline/Endline</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><Label>Start Date</Label><Input type="date" className="mt-1" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} /></div>
-            <div><Label>End Date</Label><Input type="date" className="mt-1" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} /></div>
-          </div>
-          <Button className="w-full" onClick={handleSave} disabled={saving}>
-            {saving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Adding...</> : <><Plus className="h-4 w-4 mr-1.5" /> Add Indicator</>}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -385,12 +131,35 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [view, setView] = useState<"table" | "timeline">("table");
 
+  const lang = useUserLanguage();
+  const { t } = useTranslation(undefined, { lng: lang });
+
   const { data: framework, isLoading } = useQuery({
-    queryKey: ["framework", projectId],
+    queryKey: queryKeys.framework(projectId),
     queryFn: () => api.getFramework(projectId),
   });
+  // The results chain query carries the latest nodes after edits in the results panel.
+  const { data: resultsData } = useFrameworkResults(framework?.id);
+  const resultNodes: ResultNode[] = resultsData ?? framework?.resultNodes ?? [];
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["framework", projectId] });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.framework(projectId) });
+
+  // This screen is English apart from the translated parts, so those carry their own lang (WCAG 3.1.2).
+  const editButton = (ind: Indicator) => (
+    <IndicatorDialog
+      mode="edit"
+      projectId={projectId}
+      frameworkId={ind.frameworkId}
+      indicator={ind}
+      frameworkStatus={framework?.status}
+      resultNodes={resultNodes}
+      trigger={
+        <Button variant="ghost" size="sm" className="h-7 px-2" lang={lang} aria-label={t("indicatorTable.editIndicator", { name: ind.indicatorText })}>
+          <Pencil aria-hidden="true" className="h-3 w-3 me-1" /> {t("indicatorTable.edit")}
+        </Button>
+      }
+    />
+  );
 
   if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="h-5 w-5 animate-spin" /></div>;
 
@@ -410,7 +179,7 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
     );
   }
 
-  const overdue = indicators.filter((i: any) => {
+  const overdue = indicators.filter((i) => {
     const tl = getTimelineStatus(i);
     return tl?.isOverdue;
   }).length;
@@ -435,10 +204,23 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
             <button onClick={() => setView("table")} className={`px-3 py-1.5 text-xs font-medium ${view === "table" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Table</button>
             <button onClick={() => setView("timeline")} className={`px-3 py-1.5 text-xs font-medium ${view === "timeline" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Timeline</button>
           </div>
-          <AddIndicatorDialog frameworkId={framework.id} onAdded={refresh} />
+          <IndicatorDialog
+            mode="create"
+            projectId={projectId}
+            frameworkId={framework.id}
+            frameworkStatus={framework.status}
+            resultNodes={resultNodes}
+            trigger={
+              <Button variant="outline" size="sm" lang={lang}>
+                <Plus aria-hidden="true" className="h-4 w-4 me-1.5" /> {t("indicatorTable.addIndicator")}
+              </Button>
+            }
+          />
           <CreateFrameworkDialog projectId={projectId} onCreated={refresh} />
         </div>
       </div>
+
+      <ResultsChainPanel projectId={projectId} frameworkId={framework.id} />
 
       {/* Table View */}
       {view === "table" && (
@@ -458,10 +240,9 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {indicators.map((ind: any) => (
-                <>
+              {indicators.map((ind) => (
+                <Fragment key={ind.id}>
                   <tr
-                    key={ind.id}
                     className="hover:bg-secondary/30 cursor-pointer transition-colors"
                     onClick={() => setExpanded(expanded === ind.id ? null : ind.id)}
                   >
@@ -469,7 +250,17 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                       {expanded === ind.id ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
                     </td>
                     <td className="px-3 py-3 font-medium max-w-[250px]">
-                      <div>{ind.indicatorText}</div>
+                      <div>{lang === "ar" && ind.indicatorTextAr ? <span lang="ar" dir="rtl">{ind.indicatorTextAr}</span> : ind.indicatorText}</div>
+                      {ind.result && (
+                        <span className="mt-0.5 inline-block font-mono text-[10px] text-muted-foreground" title={ind.result.text} dir="ltr">
+                          {ind.result.code}
+                        </span>
+                      )}
+                      {needsAiReviewLabel(ind.provenance, ind.isApproved, framework.status) && (
+                        <span lang={lang} className="mt-0.5 flex items-center gap-1 text-[10px] font-medium text-foreground">
+                          <Sparkles aria-hidden="true" className="h-3 w-3" /> {t("ai.suggestedLabel")}
+                        </span>
+                      )}
                       {ind.responsibility && (
                         <span className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
                           <Users className="h-3 w-3" /> {ind.responsibility}
@@ -485,7 +276,7 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                     </td>
                     <td className="px-3 py-3 text-center"><StatusDot status={ind.status} showLabel /></td>
                     <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                      <EditIndicatorDialog ind={ind} onSaved={refresh} />
+                      {editButton(ind)}
                     </td>
                   </tr>
                   {expanded === ind.id && (
@@ -528,7 +319,7 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                             {Array.isArray(ind.milestones) && ind.milestones.length > 0 && (
                               <div className="space-y-1">
                                 <span className="text-xs font-semibold">Milestones:</span>
-                                {ind.milestones.map((m: any, i: number) => (
+                                {ind.milestones.map((m: Milestone, i: number) => (
                                   <div key={i} className="flex items-center gap-2 text-xs">
                                     <span className={`h-2 w-2 rounded-full ${m.completed ? "bg-success" : "bg-muted-foreground/30"}`} />
                                     <span className="text-muted-foreground">{m.label}</span>
@@ -542,7 +333,7 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -553,7 +344,7 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
       {view === "timeline" && (
         <div className="card-surface p-5 space-y-3">
           <div className="space-y-2">
-            {indicators.map((ind: any) => {
+            {indicators.map((ind) => {
               const tl = getTimelineStatus(ind);
               return (
                 <div key={ind.id} className="flex items-start gap-4 py-3 border-b last:border-0">
@@ -572,7 +363,7 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                     <TimelineBar ind={ind} />
                   </div>
                   <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-                    <EditIndicatorDialog ind={ind} onSaved={refresh} />
+                    {editButton(ind)}
                   </div>
                 </div>
               );

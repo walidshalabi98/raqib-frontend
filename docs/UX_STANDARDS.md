@@ -68,6 +68,9 @@ Keep the left sidebar to these items. Project sub-navigation uses tabs.
 - **Empty states:** illustration-free, one sentence of explanation, one primary button ("Upload your proposal", "Add your first data point").
 - **Loading:** skeletons shaped like the content; AI tasks show named progress steps and an estimated time.
 - **Errors:** human sentence + what to do ("We couldn't read this PDF. Try a Word file or a text-based PDF.").
+- **Field warnings:** advice that should not block saving (e.g. a percentage without numerator and denominator) is shown as text plus a warning icon, linked to the field with `aria-describedby`; the field is not marked required and the warning never appears in the error summary.
+- **Editing existing records:** only problems in fields the user changed block saving; problems already in the stored data are shown but do not stop an unrelated edit.
+- **Server-set fields:** do not send what the API decides (provenance on edit, an indicator's level while it is linked to a result); lock the control and explain why in a hint.
 - **Destructive actions:** confirm with the item name; offer undo for 10 seconds where possible.
 - **Tables:** sticky header, sortable columns, row actions in a menu, export button; switch to cards under 640 px.
 

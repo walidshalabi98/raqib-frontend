@@ -1,0 +1,496 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { IndicatorForm } from "@/components/project/IndicatorForm";
+import { IndicatorDialog } from "@/components/project/IndicatorDialog";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { api } from "@/services/api";
+import { toast } from "sonner";
+import { renderWithClient } from "@/test/utils";
+import { ApiError } from "@/lib/apiError";
+import { makeIndicator, sampleResultNodes } from "@/test/fixtures";
+import type { AuthUser } from "@/types/api";
+
+vi.mock("@/services/api", () => ({
+  api: {
+    addIndicatorToFramework: vi.fn(),
+    updateIndicator: vi.fn(),
+    getLibraryEntry: vi.fn(),
+    getUser: vi.fn(() => null),
+    getToken: vi.fn(() => "token"),
+  },
+}));
+
+vi.mock("sonner", () => ({
+  toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }),
+}));
+
+const nodes = sampleResultNodes();
+
+/** The whole accessible description (the empty error message adds a trailing space). */
+const exactly = (text: string) => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
+
+function renderForm(props: Partial<Parameters<typeof IndicatorForm>[0]> = {}) {
+  const onSaved = vi.fn();
+  const onCancel = vi.fn();
+  const view = renderWithClient(
+    <IndicatorForm
+      mode="create"
+      projectId="p-1"
+      frameworkId="fw-1"
+      resultNodes={nodes}
+      lang="en"
+      onSaved={onSaved}
+      onCancel={onCancel}
+      {...props}
+    />,
+  );
+  return { ...view, onSaved, onCancel };
+}
+
+/** Every reference-sheet field of knowledge/me-foundations.md §3, by its English label. */
+const REFERENCE_SHEET_LABELS = [
+  "Indicator name (English)",
+  "Indicator name (Arabic)",
+  "Result it measures",
+  "Level",
+  "Status",
+  "Definition",
+  "Unit",
+  "Desired direction",
+  "Numerator",
+  "Denominator",
+  "Formula",
+  "Rounding",
+  "Custom group key",
+  "Collection method",
+  "Frequency",
+  "Means of verification",
+  "Responsible person or role",
+  "Baseline value",
+  "Baseline date",
+  "Baseline method",
+  "Final target",
+  "Current value",
+  "Target justification",
+  "Library ID",
+  "Standard reference code",
+  "Provenance",
+  "Assumptions and data limitations",
+  "Planned start",
+  "Planned end",
+  "Actual start",
+  "Actual end",
+];
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(api.getLibraryEntry).mockRejectedValue(new ApiError("Library entry not found", 404));
+});
+
+describe("IndicatorForm", { timeout: 20_000 }, () => {
+  it("renders every reference-sheet field with a visible label", () => {
+    renderForm();
+    for (const label of REFERENCE_SHEET_LABELS) {
+      expect(screen.getByLabelText(new RegExp(`^${label.replace(/[()]/g, "\\$&")}\\*?$`)), label).toBeInTheDocument();
+    }
+    expect(screen.getByText("Disaggregation groups")).toBeInTheDocument();
+    expect(screen.getByText("Intermediate targets")).toBeInTheDocument();
+    expect(screen.getByText("Milestones")).toBeInTheDocument();
+    // Sections are keyboard-accessible accordion buttons.
+    for (const section of ["Basics", "Definition and calculation", "Disaggregation", "Data collection", "Baseline and targets", "Standard and source", "Assumptions", "Timeline and milestones"]) {
+      expect(screen.getByRole("button", { name: new RegExp(`^${section}`) })).toHaveAttribute("aria-expanded", "true");
+    }
+    // Glossary help text (me-foundations §1).
+    expect(screen.getByText(/It names what is measured; it never contains the target/)).toBeInTheDocument();
+    expect(screen.getByText(/Generic answers such as “project reports” are not acceptable/)).toBeInTheDocument();
+    // The Arabic name is typed right-to-left.
+    expect(screen.getByLabelText("Indicator name (Arabic)")).toHaveAttribute("dir", "rtl");
+    // Result options show code and text, indented by depth.
+    const resultSelect = screen.getByLabelText("Result it measures");
+    expect(within(resultSelect).getByRole("option", { name: /O1\.1 · Households receive vouchers/ })).toBeInTheDocument();
+  });
+
+  it("submits the full payload on create", async () => {
+    const user = userEvent.setup({ delay: null });
+    const saved = makeIndicator({ id: "new-1" });
+    vi.mocked(api.addIndicatorToFramework).mockResolvedValue(saved);
+    const { onSaved } = renderForm();
+
+    await user.type(screen.getByLabelText(/^Indicator name \(English\)/), "% of households with acceptable FCS");
+    await user.type(screen.getByLabelText("Indicator name (Arabic)"), "نسبة الأسر");
+    await user.selectOptions(screen.getByLabelText("Result it measures"), "o1");
+    expect(screen.getByLabelText("Level")).toHaveValue("outcome");
+    await user.type(screen.getByLabelText("Unit"), "percent");
+    await user.selectOptions(screen.getByLabelText("Desired direction"), "increase");
+    await user.type(screen.getByLabelText(/^Numerator/), "Households with FCS > 35");
+    await user.type(screen.getByLabelText(/^Denominator/), "Surveyed households");
+    await user.click(screen.getByRole("button", { name: "Add Sex" }));
+    await user.selectOptions(screen.getByLabelText("Frequency"), "biannual");
+    await user.type(screen.getByLabelText("Means of verification"), "Household survey, FCS module");
+    await user.type(screen.getByLabelText("Baseline value"), "42%");
+    fireEvent.change(screen.getByLabelText("Baseline date"), { target: { value: "2026-02-15" } });
+    await user.type(screen.getByLabelText("Final target"), "55%");
+    await user.click(screen.getByRole("button", { name: "Add intermediate target" }));
+    fireEvent.change(screen.getByLabelText("Target 1 date"), { target: { value: "2026-12-31" } });
+    await user.type(screen.getByLabelText("Target 1 value"), "48%");
+    await user.type(screen.getByLabelText("Standard reference code"), "WFP CRF");
+    await user.type(screen.getByLabelText("Assumptions and data limitations"), "Prices stay stable");
+    await user.click(screen.getByRole("button", { name: "Add indicator" }));
+
+    await waitFor(() => expect(api.addIndicatorToFramework).toHaveBeenCalledTimes(1));
+    expect(api.addIndicatorToFramework).toHaveBeenCalledWith("fw-1", {
+      indicatorText: "% of households with acceptable FCS",
+      indicatorTextAr: "نسبة الأسر",
+      level: "outcome",
+      resultId: "o1",
+      status: "not_started",
+      definition: null,
+      unit: "percent",
+      direction: "increase",
+      calculation: { numerator: "Households with FCS > 35", denominator: "Surveyed households" },
+      disaggregation: ["sex"],
+      dataCollectionMethod: "hh_survey",
+      frequency: "biannual",
+      meansOfVerification: "Household survey, FCS module",
+      responsibility: null,
+      baselineValue: "42%",
+      baselineDate: "2026-02-15",
+      baselineMethod: null,
+      targetValue: "55%",
+      targetJustification: null,
+      intermediateTargets: [{ date: "2026-12-31", value: "48%" }],
+      currentValue: null,
+      libraryId: null,
+      standardReferenceCode: "WFP CRF",
+      assumptions: "Prices stay stable",
+      startDate: null,
+      endDate: null,
+      actualStartDate: null,
+      actualEndDate: null,
+      milestones: null,
+      provenance: "manual",
+    });
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
+    expect(toast.success).toHaveBeenCalledWith("Indicator added");
+  });
+
+  it("sends only the changed fields on edit", async () => {
+    const user = userEvent.setup({ delay: null });
+    const indicator = makeIndicator();
+    vi.mocked(api.updateIndicator).mockResolvedValue({ ...indicator, targetValue: "60%" });
+    renderForm({ mode: "edit", indicator });
+
+    const target = screen.getByLabelText("Final target");
+    expect(target).toHaveValue("55%");
+    await user.clear(target);
+    await user.type(target, "60%");
+    await user.click(screen.getByRole("button", { name: "Add Sex" }));
+    await user.clear(screen.getByLabelText("Definition"));
+    await user.click(screen.getByRole("button", { name: "Save indicator" }));
+
+    await waitFor(() => expect(api.updateIndicator).toHaveBeenCalledTimes(1));
+    expect(api.updateIndicator).toHaveBeenCalledWith("ind-1", {
+      targetValue: "60%",
+      definition: null,
+      disaggregation: ["sex_of_household_head", "location", "sex"],
+    });
+    expect(toast.success).toHaveBeenCalledWith("Indicator saved");
+  });
+
+  it("sends the linked result's level with a new result and never sends provenance on edit", async () => {
+    // The API answers 400 when level and result differ, and sets provenance itself on PATCH.
+    const user = userEvent.setup({ delay: null });
+    const indicator = makeIndicator();
+    vi.mocked(api.updateIndicator).mockResolvedValue({ ...indicator, resultId: "o11", level: "output", libraryId: null, provenance: "manual" });
+    renderForm({ mode: "edit", indicator });
+
+    await user.selectOptions(screen.getByLabelText("Result it measures"), "o11");
+    await user.clear(screen.getByLabelText("Library ID"));
+    await user.click(screen.getByRole("button", { name: "Save indicator" }));
+
+    await waitFor(() => expect(api.updateIndicator).toHaveBeenCalledTimes(1));
+    expect(api.updateIndicator).toHaveBeenCalledWith("ind-1", { resultId: "o11", level: "output", libraryId: null });
+  });
+
+  it("does not call the API when nothing changed", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { onCancel } = renderForm({ mode: "edit", indicator: makeIndicator() });
+    await user.click(screen.getByRole("button", { name: "Save indicator" }));
+    expect(api.updateIndicator).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith("No changes to save");
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("validates before saving, announces the problems and focuses the first field", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderForm();
+    await user.type(screen.getByLabelText("Unit"), "%");
+    await user.click(screen.getByRole("button", { name: "Add indicator" }));
+
+    expect(api.addIndicatorToFramework).not.toHaveBeenCalled();
+    const summary = screen.getByRole("alert");
+    expect(summary).toHaveTextContent("Please fix 1 problem before saving.");
+    expect(summary).toHaveTextContent("Enter the indicator name in English.");
+    // The missing numerator and denominator are warnings, not problems.
+    expect(summary).not.toHaveTextContent("numerator");
+    const name = screen.getByLabelText(/^Indicator name \(English\)/);
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    await waitFor(() => expect(name).toHaveFocus());
+  });
+
+  it("warns about a percentage without numerator and denominator but still saves it", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.addIndicatorToFramework).mockResolvedValue(makeIndicator({ id: "new-2" }));
+    renderForm();
+    await user.type(screen.getByLabelText(/^Indicator name \(English\)/), "% of trainees employed");
+    await user.type(screen.getByLabelText("Unit"), "%");
+
+    const numerator = screen.getByLabelText("Numerator");
+    expect(numerator).not.toHaveAttribute("aria-required");
+    expect(numerator).not.toHaveAttribute("aria-invalid");
+    expect(numerator).toHaveAccessibleDescription(exactly("Percentages need a numerator. You can save now and add it later."));
+    expect(screen.getByLabelText("Denominator")).toHaveAccessibleDescription(exactly("Percentages need a denominator. You can save now and add it later."));
+
+    await user.click(screen.getByRole("button", { name: "Add indicator" }));
+    await waitFor(() => expect(api.addIndicatorToFramework).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.addIndicatorToFramework).mock.calls[0][1]).toMatchObject({ unit: "%", calculation: null });
+  });
+
+  it("does not block an edit on problems already in the stored indicator", async () => {
+    const user = userEvent.setup({ delay: null });
+    const indicator = makeIndicator({
+      calculation: null,
+      disaggregation: ["sex", "Bad Key"],
+      milestones: [{ label: "", date: null, completed: false }],
+    });
+    vi.mocked(api.updateIndicator).mockResolvedValue({ ...indicator, targetValue: "60%" });
+    renderForm({ mode: "edit", indicator });
+
+    const target = screen.getByLabelText("Final target");
+    await user.clear(target);
+    await user.type(target, "60%");
+    await user.click(screen.getByRole("button", { name: "Save indicator" }));
+    await waitFor(() => expect(api.updateIndicator).toHaveBeenCalledWith("ind-1", { targetValue: "60%" }));
+    expect(screen.queryByText(/Please fix/)).not.toBeInTheDocument();
+  });
+
+  it("blocks an edit when a changed field has a problem", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderForm({ mode: "edit", indicator: makeIndicator({ disaggregation: ["sex", "Bad Key"] }) });
+    await user.click(screen.getByRole("button", { name: "Add Age" }));
+    await user.click(screen.getByRole("button", { name: "Save indicator" }));
+    expect(api.updateIndicator).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("“Bad Key” is not a valid group key.");
+  });
+
+  it("checks dates inline when the field loses focus", async () => {
+    renderForm();
+    const start = screen.getByLabelText("Planned start");
+    const end = screen.getByLabelText("Planned end");
+    fireEvent.change(start, { target: { value: "2026-05-01" } });
+    fireEvent.change(end, { target: { value: "2026-04-01" } });
+    fireEvent.blur(end);
+    expect(await screen.findByText("The planned end must be on or after the planned start.")).toBeInTheDocument();
+    expect(end).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("adds and removes disaggregation chips and rejects invalid keys", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderForm();
+    expect(screen.getByText("Sex is the minimum for any indicator that counts or measures people.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add Sex" }));
+    expect(screen.getByRole("button", { name: "Remove Sex" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add Sex" })).not.toBeInTheDocument();
+
+    const custom = screen.getByLabelText("Custom group key");
+    await user.type(custom, "Female Head");
+    await user.click(screen.getByRole("button", { name: "Add group" }));
+    expect(screen.getByText(/“Female Head” is not a valid group key.*“female_head”/)).toBeInTheDocument();
+    expect(custom).toHaveAttribute("aria-invalid", "true");
+
+    await user.clear(custom);
+    await user.type(custom, "female_head{Enter}");
+    expect(screen.getByRole("button", { name: "Remove female_head" })).toBeInTheDocument();
+    expect(custom).toHaveValue("");
+
+    await user.type(custom, "sex");
+    await user.click(screen.getByRole("button", { name: "Add group" }));
+    expect(screen.getByText("“sex” is already in the list.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Remove Sex" }));
+    expect(screen.queryByRole("button", { name: "Remove Sex" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Sex" })).toBeInTheDocument();
+  });
+
+  it("shows the pending-baseline hint only while the baseline is empty", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderForm();
+    expect(screen.getByText(/^Pending baseline\./)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Baseline value"), "12");
+    expect(screen.queryByText(/^Pending baseline\./)).not.toBeInTheDocument();
+  });
+
+  it("labels AI-suggested indicators until they or their framework are approved", () => {
+    const aiIndicator = makeIndicator({ provenance: "ai_suggested", isApproved: false, aiModel: "claude-sonnet-5-5", promptVersion: "kpi-1.0" });
+    const { unmount } = renderForm({ mode: "edit", indicator: aiIndicator, frameworkStatus: "client_review" });
+    expect(screen.getAllByText("AI suggested — review before approval").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Provenance")).toHaveValue("AI suggested");
+    expect(screen.getByLabelText("Provenance")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("AI model")).toHaveValue("claude-sonnet-5-5 · kpi-1.0");
+    unmount();
+
+    const approved = renderForm({ mode: "edit", indicator: makeIndicator({ provenance: "ai_generated", isApproved: true }) });
+    expect(screen.queryByText("AI suggested — review before approval")).not.toBeInTheDocument();
+    approved.unmount();
+
+    // Approving the framework approves its indicators, even before isApproved reaches the client.
+    for (const frameworkStatus of ["approved", "active"] as const) {
+      const view = renderForm({ mode: "edit", indicator: aiIndicator, frameworkStatus });
+      expect(screen.queryByText("AI suggested — review before approval"), frameworkStatus).not.toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it("sets the level from the linked result and locks it while linked", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderForm();
+    const level = screen.getByLabelText("Level");
+    expect(level).toBeEnabled();
+    await user.selectOptions(level, "impact");
+
+    await user.selectOptions(screen.getByLabelText("Result it measures"), "o11");
+    expect(level).toHaveValue("output");
+    expect(level).toBeDisabled();
+    expect(level).toHaveAccessibleDescription(exactly("Set by the linked result. To choose another level, remove the link first."));
+
+    await user.selectOptions(screen.getByLabelText("Result it measures"), "");
+    expect(level).toBeEnabled();
+    expect(level).not.toHaveAccessibleDescription(/linked result/);
+    await user.selectOptions(level, "activity");
+    expect(level).toHaveValue("activity");
+  });
+
+  it("locks the level of a linked indicator on edit and explains it in Arabic", () => {
+    renderForm({ mode: "edit", indicator: makeIndicator(), lang: "ar" });
+    const level = screen.getByLabelText("المستوى");
+    expect(level).toBeDisabled();
+    expect(level).toHaveValue("outcome");
+    expect(level).toHaveAccessibleDescription(exactly("تحدّده النتيجة المرتبطة. لاختيار مستوى آخر، أزِل الربط أولًا."));
+  });
+
+  it("shows the matching library entry for a library id", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.getLibraryEntry).mockResolvedValue({ id: "FS-01", name: "Food Consumption Score", nameAr: "درجة الاستهلاك الغذائي" } as never);
+    renderForm();
+    await user.type(screen.getByLabelText("Library ID"), "FS-01");
+    expect(await screen.findByText("In the library: Food Consumption Score", {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(api.getLibraryEntry).toHaveBeenCalledWith("FS-01");
+    expect(screen.getByLabelText("Provenance")).toHaveValue("From the indicator library");
+  });
+
+  it("looks up and sends library ids in upper case", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.getLibraryEntry).mockResolvedValue({ id: "FS-01", name: "Food Consumption Score", nameAr: null } as never);
+    vi.mocked(api.addIndicatorToFramework).mockResolvedValue(makeIndicator({ id: "new-3" }));
+    renderForm();
+    await user.type(screen.getByLabelText(/^Indicator name \(English\)/), "Food Consumption Score");
+    await user.type(screen.getByLabelText("Library ID"), " fs-01 ");
+    expect(await screen.findByText("In the library: Food Consumption Score", {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(api.getLibraryEntry).toHaveBeenCalledWith("FS-01");
+    expect(api.getLibraryEntry).not.toHaveBeenCalledWith("fs-01");
+
+    await user.click(screen.getByRole("button", { name: "Add indicator" }));
+    await waitFor(() => expect(api.addIndicatorToFramework).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.addIndicatorToFramework).mock.calls[0][1]).toMatchObject({ libraryId: "FS-01", provenance: "library" });
+  });
+
+  it("says an id is not in the library only when the library answers 404", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { unmount } = renderForm();
+    await user.type(screen.getByLabelText("Library ID"), "XX-99");
+    expect(await screen.findByText(/This ID is not in the indicator library/, {}, { timeout: 2000 })).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(api.getLibraryEntry).mockRejectedValue(new ApiError("API request failed", 500));
+    renderForm();
+    await user.type(screen.getByLabelText("Library ID"), "FS-01");
+    expect(await screen.findByText(/We couldn't check the indicator library just now/, {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(screen.queryByText(/not in the indicator library/)).not.toBeInTheDocument();
+  });
+
+  it("does not put destructive text on a tinted background (contrast)", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderForm();
+    await user.click(screen.getByRole("button", { name: "Add indicator" }));
+    const summary = screen.getByRole("alert");
+    expect(summary.className).not.toMatch(/bg-destructive/);
+    const badge = screen.getByText("1 problem");
+    expect(badge.className).not.toMatch(/bg-destructive/);
+    expect(badge).toHaveClass("text-destructive");
+  });
+
+  it("shows the server's message when saving fails", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.addIndicatorToFramework).mockRejectedValue(new Error('libraryId "XX-99" is not in the indicator library'));
+    renderForm();
+    await user.type(screen.getByLabelText(/^Indicator name \(English\)/), "Trainees");
+    await user.click(screen.getByRole("button", { name: "Add indicator" }));
+    expect(await screen.findByText('libraryId "XX-99" is not in the indicator library')).toBeInTheDocument();
+    expect(toast.error).toHaveBeenCalledWith("We couldn't save the indicator. Check the message below and try again.");
+  });
+
+  it("renders right-to-left with Arabic labels in Arabic", () => {
+    const { container } = renderForm({ lang: "ar" });
+    const form = container.querySelector("form");
+    expect(form).toHaveAttribute("dir", "rtl");
+    expect(form).toHaveAttribute("lang", "ar");
+    expect(screen.getByLabelText(/^اسم المؤشر \(بالإنجليزية\)/)).toHaveAttribute("dir", "ltr");
+    expect(screen.getByLabelText("اسم المؤشر (بالعربية)")).toHaveAttribute("dir", "rtl");
+    expect(screen.getByLabelText("وسيلة التحقق")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^خط الأساس والقيم المستهدفة/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إضافة المؤشر" })).toBeInTheDocument();
+  });
+});
+
+describe("IndicatorDialog", () => {
+  it("switches between English and Arabic with the toggle", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderWithClient(
+      <IndicatorDialog mode="create" projectId="p-1" frameworkId="fw-1" resultNodes={nodes} trigger={<button type="button">Open</button>} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("dir", "ltr");
+    expect(within(dialog).getByRole("heading", { name: "Add indicator" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "English" })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(within(dialog).getByRole("button", { name: "العربية" }));
+    expect(dialog).toHaveAttribute("dir", "rtl");
+    expect(dialog).toHaveAttribute("lang", "ar");
+    expect(within(dialog).getByRole("heading", { name: "إضافة مؤشر" })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("المستوى")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "إغلاق" })).toBeInTheDocument();
+  });
+
+  it("opens in the signed-in user's language", async () => {
+    const user = userEvent.setup({ delay: null });
+    const arabicUser: AuthUser = {
+      id: "u1", email: "sara@example.org", fullName: "Sara", role: "me_officer", languagePref: "ar",
+      organization: { id: "org-1", name: "Org" },
+    };
+    vi.mocked(api.getUser).mockReturnValue(arabicUser);
+    renderWithClient(
+      <AuthProvider>
+        <IndicatorDialog mode="edit" projectId="p-1" frameworkId="fw-1" indicator={makeIndicator()} resultNodes={nodes}
+          trigger={<button type="button">Open</button>} />
+      </AuthProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("dir", "rtl");
+    expect(within(dialog).getByRole("heading", { name: "تعديل المؤشر" })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("اسم المؤشر (بالعربية)")).toHaveValue("نسبة الأسر ذات درجة استهلاك غذائي مقبولة");
+  });
+});

@@ -1,15 +1,8 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { api } from "@/services/api";
+import type { AuthUser } from "@/types/api";
 
-interface User {
-  id: string;
-  email: string;
-  fullName: string;
-  fullNameAr?: string;
-  role: string;
-  languagePref: string;
-  organization: { id: string; name: string; nameAr?: string };
-}
+type User = AuthUser;
 
 interface AuthContextType {
   user: User | null;
@@ -45,4 +38,10 @@ export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
+}
+
+/** The auth context, or null outside AuthProvider (e.g. isolated component tests). */
+// eslint-disable-next-line react-refresh/only-export-components -- the hook belongs with its provider
+export function useOptionalAuth(): AuthContextType | null {
+  return useContext(AuthContext);
 }

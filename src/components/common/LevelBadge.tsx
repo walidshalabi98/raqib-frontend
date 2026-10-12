@@ -1,4 +1,4 @@
-import { IndicatorLevel } from "@/data/mockData";
+import type { IndicatorLevel } from "@/types/api";
 
 const levelStyles: Record<IndicatorLevel, string> = {
   impact: "bg-foreground text-card",
@@ -7,10 +7,11 @@ const levelStyles: Record<IndicatorLevel, string> = {
   activity: "bg-muted text-muted-foreground",
 };
 
-export function LevelBadge({ level }: { level: IndicatorLevel }) {
+/** Level badge; pass `label` to show a translated level name (defaults to the level key). */
+export function LevelBadge({ level, label }: { level: IndicatorLevel; label?: string }) {
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide ${levelStyles[level]}`}>
-      {level}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide [&:lang(ar)]:normal-case ${levelStyles[level] ?? levelStyles.activity}`}>
+      {label ?? level}
     </span>
   );
 }
