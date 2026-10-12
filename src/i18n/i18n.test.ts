@@ -6,10 +6,12 @@ import {
   COLLECTION_METHODS,
   DIRECTIONS,
   DISAGGREGATION_SUGGESTIONS,
+  DOCUMENT_FILE_TYPES,
   DONOR_TYPES,
   FREQUENCIES,
   INDICATOR_LEVELS,
   INDICATOR_STATUSES,
+  PARSING_STATUSES,
   PROVENANCES,
   SECTORS,
 } from "@/lib/constants";
@@ -38,6 +40,8 @@ describe("translations", () => {
       ["status", INDICATOR_STATUSES],
       ["provenance", PROVENANCES],
       ["disaggregation", DISAGGREGATION_SUGGESTIONS],
+      ["documentType", DOCUMENT_FILE_TYPES],
+      ["parsingStatus", PARSING_STATUSES],
     ];
     for (const [group, values] of groups) {
       for (const value of values) {

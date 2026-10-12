@@ -1,12 +1,14 @@
 import type {
   ClientProvenance,
   CollectionMethod,
+  DocumentFileType,
   DonorType,
   Frequency,
   IndicatorDirection,
   IndicatorLevel,
   IndicatorProvenance,
   IndicatorStatus,
+  ParsingStatus,
   Sector,
 } from "@/types/api";
 import en from "@/i18n/en.json";
@@ -87,6 +89,19 @@ export const PROVENANCES: readonly IndicatorProvenance[] = ["library", "ai_sugge
 
 /** Provenance values a client may send; ai_* are set only by Raqib's AI features. */
 export const CLIENT_PROVENANCES: readonly ClientProvenance[] = ["manual", "library", "imported"];
+
+/** Document types offered on upload (Prisma enum DocumentType). */
+export const DOCUMENT_FILE_TYPES: readonly DocumentFileType[] = [
+  "proposal",
+  "logframe",
+  "theory_of_change",
+  "baseline_report",
+  "donor_guidelines",
+  "budget",
+  "other",
+];
+
+export const PARSING_STATUSES: readonly ParsingStatus[] = ["pending", "processing", "completed", "failed"];
 
 /** Disaggregation groups offered as one-click chips (knowledge/me-foundations.md §4). */
 export const DISAGGREGATION_SUGGESTIONS = [

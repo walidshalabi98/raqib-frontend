@@ -117,14 +117,61 @@ export interface ProjectDetail extends Project {
   frameworks: Array<Omit<Framework, "resultNodes"> & { resultNodes?: ResultNode[] }>;
 }
 
+/** Prisma enum DocumentType: what the uploader says the file is. */
+export type DocumentFileType =
+  | "proposal"
+  | "logframe"
+  | "theory_of_change"
+  | "baseline_report"
+  | "donor_guidelines"
+  | "budget"
+  | "other";
+
+/** Prisma enum ParsingStatus: text extraction of an uploaded document. */
+export type ParsingStatus = "pending" | "processing" | "completed" | "failed";
+
+/** The kind of document the AI analysis recognised (a closed set in the backend schema). */
+export type DocumentAnalysisType = "proposal" | "logframe" | "budget" | "report" | "guidelines" | "other";
+
+/** A target stated in the document, copied as written ("" for any part the document does not state). */
+export interface DocumentTargetMention {
+  indicator: string;
+  target: string;
+  timeline: string;
+}
+
+/**
+ * Document.aiAnalysis as the backend stores it (document parser, Phase 3).
+ * Read it with `documentAnalysisOf` (src/lib/documentAnalysis.ts), which also
+ * accepts legacy rows (analysis appended to parsedText) and malformed values.
+ */
+export interface DocumentAiAnalysis {
+  documentType: DocumentAnalysisType;
+  summary: string;
+  keyFindings: string[];
+  indicatorsMentioned: string[];
+  targetsMentioned: DocumentTargetMention[];
+  recommendations: string[];
+  /** Served model id. */
+  model: string;
+  promptVersion: string;
+  /** ISO date-time. */
+  analysedAt: string;
+}
+
 export interface ProjectDocument {
   id: string;
   projectId: string;
   fileName: string;
-  fileType: string;
+  fileType: DocumentFileType;
   fileSizeBytes: string | number | null;
-  parsingStatus: "pending" | "processing" | "completed" | "failed";
+  parsingStatus: ParsingStatus;
   uploadedAt: string;
+  /** Extracted text with phone numbers, ID numbers and emails removed (list endpoint only). */
+  parsedText?: string | null;
+  /** The AI analysis (list endpoint only); null until it is ready, or when analysis failed. */
+  aiAnalysis?: DocumentAiAnalysis | null;
+  uploader?: { fullName: string } | null;
 }
 
 /** POST /api/projects (PATCH accepts any subset plus `status`). */

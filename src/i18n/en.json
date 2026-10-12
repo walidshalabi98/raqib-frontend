@@ -366,5 +366,59 @@
       "created": "Project created",
       "failed": "We couldn't create the project."
     }
+  },
+  "documentType": {
+    "proposal": "Project proposal",
+    "logframe": "Logframe",
+    "theory_of_change": "Theory of change",
+    "baseline_report": "Baseline report",
+    "donor_guidelines": "Donor guidelines",
+    "budget": "Budget",
+    "other": "Other"
+  },
+  "parsingStatus": {
+    "pending": "Waiting to process",
+    "processing": "Processing",
+    "completed": "Processed",
+    "failed": "Could not be read"
+  },
+  "documents": {
+    "title": "Project documents",
+    "upload": "Upload document",
+    "uploadTitle": "Upload a project document",
+    "uploadDescription": "Raqib reads the file, removes phone numbers, ID numbers and email addresses, then prepares an AI analysis.",
+    "fileType": "Document type",
+    "file": "File",
+    "fileHint": "PDF, Word or Excel (XLSX).",
+    "submit": "Upload and analyse",
+    "uploading": "Uploading…",
+    "loading": "Loading documents…",
+    "loadError": "We couldn't load the documents. Check your connection and try again.",
+    "empty": "No documents yet. Upload a proposal, logframe or report and Raqib will analyse it.",
+    "uploadedOn": "Uploaded {{date}}",
+    "failedHint": "We couldn't read this file. Try a Word file or a text-based PDF.",
+    "analysisPending": "Preparing the AI analysis…",
+    "aiAnalysed": "AI analysis",
+    "summaryTitle": "AI summary",
+    "viewAnalysis": "View analysis",
+    "viewAnalysisOf": "View analysis: {{name}}",
+    "analysisTitle": "AI document analysis",
+    "analysedOn": "Analysed {{date}}",
+    "noAnalysis": "No AI analysis is available for this document.",
+    "sections": {
+      "summary": "Summary",
+      "keyFindings": "Key findings",
+      "indicatorsMentioned": "Indicators mentioned",
+      "targetsMentioned": "Targets mentioned",
+      "recommendations": "Recommendations"
+    },
+    "target": "Target",
+    "timeline": "Timeline",
+    "notStated": "Not stated",
+    "targetsNote": "Copied from the document as written. Check each figure against the document before you use it.",
+    "toast": {
+      "uploaded": "Document uploaded. Raqib is reading it now.",
+      "uploadFailed": "We couldn't upload the document."
+    }
   }
 }

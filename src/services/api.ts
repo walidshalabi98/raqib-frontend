@@ -15,6 +15,7 @@ import type {
   LoginResponse,
   Project,
   ProjectDetail,
+  ProjectDocument,
   ProjectInput,
   ProjectUpdateInput,
   ResultDeleteResponse,
@@ -296,11 +297,13 @@ class ApiClient {
   }
 
   // Documents
+  /** Newest first, each with its redacted parsedText and AI analysis (aiAnalysis; legacy rows keep it in parsedText). */
   async getDocuments(projectId: string) {
-    return this.request(`/projects/${projectId}/documents`);
+    return this.request<ProjectDocument[]>(`/projects/${projectId}/documents`);
   }
 
-  async uploadDocument(projectId: string, file: File, fileType: string) {
+  /** Uploads to private storage; parsing and AI analysis run afterwards (parsingStatus starts as "pending"). */
+  async uploadDocument(projectId: string, file: File, fileType: string): Promise<ProjectDocument> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('fileType', fileType);
@@ -313,7 +316,7 @@ class ApiClient {
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || 'Upload failed');
+      throw new ApiError(error.message || 'Upload failed', response.status);
     }
     return response.json();
   }
