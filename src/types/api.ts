@@ -464,6 +464,55 @@ export interface BulkDataPointResponse {
   count: number;
 }
 
+// ---------------------------------------------------------- qualitative
+
+export type QualitativeType =
+  | "fgd_transcript"
+  | "kii_notes"
+  | "observation_checklist"
+  | "community_scorecard"
+  | "msc_story"
+  | "field_notes";
+
+export type Sentiment = "positive" | "neutral" | "negative" | "mixed";
+
+/**
+ * A qualitative entry (FGD or KII notes, observations, MSC stories). The title, content,
+ * location and facilitator are stored without phone numbers, ID numbers or email addresses.
+ */
+export interface QualitativeEntry {
+  id: string;
+  projectId: string;
+  assessmentId: string | null;
+  entryType: QualitativeType;
+  title: string;
+  content: string;
+  participants: number | null;
+  location: string | null;
+  /** ISO date. */
+  dateConducted: string | null;
+  facilitator: string | null;
+  /** Set by AI thematic coding (a list of theme names); null until coded. Legacy rows hold other shapes. */
+  themes: unknown;
+  sentiment: Sentiment | null;
+  linkedIndicators: unknown;
+  attachments: unknown;
+  createdAt: string;
+}
+
+/** How many phone numbers, ID numbers and email addresses were removed from a text (counts only). */
+export interface RedactionCounts {
+  phone: number;
+  idNumber: number;
+  email: number;
+}
+
+/** 201 body of POST /api/projects/:id/qualitative: the saved entry and what was removed from its text. */
+export interface QualitativeEntryCreateResponse extends QualitativeEntry {
+  /** Absent from backends that do not redact typed notes when they are saved. */
+  redactions?: RedactionCounts;
+}
+
 // --------------------------------------------------------------- library
 
 export interface StandardReference {

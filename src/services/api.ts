@@ -18,6 +18,7 @@ import type {
   ProjectDocument,
   ProjectInput,
   ProjectUpdateInput,
+  QualitativeEntryCreateResponse,
   ResultDeleteResponse,
   ResultNode,
   ResultNodeInput,
@@ -343,8 +344,9 @@ class ApiClient {
     return this.request(`/projects/${projectId}/qualitative`);
   }
 
+  /** The saved entry; `redactions` counts what was removed from its text (absent from older backends). */
   async addQualitativeEntry(projectId: string, data: object) {
-    return this.request(`/projects/${projectId}/qualitative`, { method: 'POST', body: JSON.stringify(data) });
+    return this.request<QualitativeEntryCreateResponse>(`/projects/${projectId}/qualitative`, { method: 'POST', body: JSON.stringify(data) });
   }
 
   async codeQualitativeEntry(entryId: string) {
