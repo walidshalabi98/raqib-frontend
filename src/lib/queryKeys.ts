@@ -7,6 +7,10 @@ export const queryKeys = {
   dashboard: (projectId: string) => ["dashboard", projectId] as const,
   frameworkResults: (frameworkId: string) => ["framework-results", frameworkId] as const,
   documents: (projectId: string) => ["documents", projectId] as const,
+  /** The project's reports (the project Reports tab and the Reports page share it). */
+  reports: (projectId: string) => ["reports", projectId] as const,
+  /** One report with its narrative (the reading view). */
+  report: (reportId: string) => ["report", reportId] as const,
   beneficiaryStats: (projectId: string) => ["beneficiary-stats", projectId] as const,
   libraryEntry: (id: string) => ["indicator-library", "entry", id] as const,
   // KPI Assistant (Phase 4)

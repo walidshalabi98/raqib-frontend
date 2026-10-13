@@ -4,6 +4,7 @@ import type {
   DisclosedCell,
   DonorBeneficiarySummary,
   DonorQualitativeEntry,
+  DonorReport,
   Indicator,
   IndicatorDraft,
   IndicatorQuality,
@@ -14,6 +15,8 @@ import type {
   KpiSuggestionPayload,
   KpiWarning,
   KpiWarningCode,
+  ProjectDashboard,
+  Report,
   ResultNode,
   StaffBeneficiaryStats,
 } from "@/types/api";
@@ -378,4 +381,183 @@ export function makeAccessToken(claims: Record<string, unknown>): string {
       .replace(/\//g, "_")
       .replace(/=+$/, "");
   return `${encode({ alg: "HS256", typ: "JWT" })}.${encode(claims)}.signature`;
+}
+
+/** A report as org staff receive it: a finished draft unless overridden. */
+export function makeReport(overrides: Partial<Report> = {}): Report {
+  return {
+    id: "r-1",
+    projectId: "p-1",
+    type: "quarterly_summary",
+    title: "Q3 summary",
+    donorFormat: "echo",
+    fileUrl: null,
+    generatedAt: "2026-10-01T08:00:00.000Z",
+    periodStart: "2026-07-01",
+    periodEnd: "2026-09-30",
+    aiNarrative: "<p>Progress in the third quarter.</p>",
+    status: "draft",
+    ...overrides,
+  };
+}
+
+/** A report as donor viewers receive it: published, never with a file location. */
+export function makeDonorReport(overrides: Partial<DonorReport> = {}): DonorReport {
+  return {
+    id: "r-1",
+    projectId: "p-1",
+    type: "quarterly_summary",
+    title: "Q3 summary",
+    donorFormat: "echo",
+    generatedAt: "2026-10-01T08:00:00.000Z",
+    periodStart: "2026-07-01",
+    periodEnd: "2026-09-30",
+    status: "published",
+    aiNarrative: "<p>Progress in the third quarter.</p>",
+    ...overrides,
+  };
+}
+
+const DASHBOARD_PROJECT: ProjectDashboard["project"] = {
+  id: "p-1",
+  name: "Hebron Youth Employment",
+  status: "active",
+  sector: "livelihoods",
+  donor: "EU",
+  startDate: "2026-01-01T00:00:00.000Z",
+  endDate: "2027-12-31T00:00:00.000Z",
+  targetBeneficiaries: 1200,
+};
+
+/**
+ * GET /api/dashboard/projects/:id/dashboard as org staff receive it: every data point (KoboToolbox rows
+ * included), areas as typed (GPS too), recent activity with notes and the author.
+ */
+export function makeStaffDashboard(overrides: Partial<ProjectDashboard> = {}): ProjectDashboard {
+  return {
+    project: DASHBOARD_PROJECT,
+    framework: { id: "fw-1", version: 2, status: "approved", totalIndicators: 2 },
+    indicatorStatus: { on_track: 1, at_risk: 1, off_track: 0, not_started: 0, completed: 0 },
+    indicatorLevels: { impact: 0, outcome: 1, output: 1, activity: 0 },
+    trends: [
+      {
+        indicatorId: "ind-1",
+        indicatorText: "% of youth employed six months after training",
+        level: "outcome",
+        unit: "%",
+        status: "on_track",
+        baselineValue: "20%",
+        targetValue: "60%",
+        currentValue: "45%",
+        dataPoints: [
+          { value: "45", date: "2026-08-15T00:00:00.000Z" },
+          { value: "30", date: "2026-05-15T00:00:00.000Z" },
+        ],
+      },
+      {
+        indicatorId: "ind-2",
+        indicatorText: "Number of youth trained",
+        level: "output",
+        unit: "people",
+        status: "at_risk",
+        baselineValue: "0",
+        targetValue: "500",
+        currentValue: "180",
+        dataPoints: [
+          { value: "180", date: "2026-08-20T00:00:00.000Z" },
+          { value: "7", date: "2026-08-02T00:00:00.000Z" },
+        ],
+      },
+    ],
+    geographic: [
+      { area: "Hebron", dataPointCount: 3 },
+      { area: "31.5326,35.0998", dataPointCount: 1 },
+    ],
+    recentActivity: [
+      {
+        id: "dp-1",
+        indicatorId: "ind-2",
+        assessmentId: null,
+        projectId: "p-1",
+        value: "180",
+        collectionDate: "2026-08-20T00:00:00.000Z",
+        collectionMethod: "secondary_data",
+        dataSource: "Training attendance",
+        geographicArea: "Hebron",
+        notes: "Two trainees left early",
+        attachments: null,
+        breakdown: null,
+        createdAt: "2026-08-21T09:00:00.000Z",
+        createdBy: "u-1",
+        indicator: { indicatorText: "Number of youth trained" },
+        creator: { fullName: "Officer One" },
+      },
+    ],
+    assessments: [{ id: "a-1", type: "baseline", status: "delivered", requestedAt: "2026-01-15T00:00:00.000Z" }],
+    ...overrides,
+  };
+}
+
+/**
+ * The same dashboard as donor viewers receive it: no KoboToolbox rows one by one (monthly aggregates in
+ * `surveyAggregates` instead, small counts hidden), listed places only (others in one `area: null` group, with
+ * the Arabic name beside the English one), and recent activity without notes, attachments or author.
+ */
+export function makeDonorDashboard(overrides: Partial<ProjectDashboard> = {}): ProjectDashboard {
+  const hidden: DisclosedCell = { key: null, count: null, suppressed: true };
+  const shown = (count: number): DisclosedCell => ({ key: null, count, suppressed: false });
+  return {
+    ...makeStaffDashboard(),
+    trends: [
+      {
+        indicatorId: "ind-1",
+        indicatorText: "% of youth employed six months after training",
+        level: "outcome",
+        unit: "%",
+        status: "on_track",
+        baselineValue: "20%",
+        targetValue: "60%",
+        currentValue: "45%",
+        dataPoints: [],
+        surveyAggregates: [
+          { indicatorId: "ind-1", period: "2026-05", submissions: shown(25), aggregation: "mean", value: 30, numericAnswers: shown(25) },
+          { indicatorId: "ind-1", period: "2026-08", submissions: shown(40), aggregation: "mean", value: 45.5, numericAnswers: shown(40) },
+          // Too few answers: hidden, never plotted.
+          { indicatorId: "ind-1", period: "2026-09", submissions: hidden, aggregation: "mean", value: null, numericAnswers: hidden },
+        ],
+      },
+      {
+        indicatorId: "ind-2",
+        indicatorText: "Number of youth trained",
+        level: "output",
+        unit: "people",
+        status: "at_risk",
+        baselineValue: "0",
+        targetValue: "500",
+        currentValue: "180",
+        dataPoints: [{ value: "180", date: "2026-08-20T00:00:00.000Z" }],
+        surveyAggregates: [],
+      },
+    ],
+    geographic: [
+      { area: "Hebron", areaAr: "الخليل", dataPointCount: 2 },
+      { area: null, areaAr: null, dataPointCount: 2 },
+    ],
+    recentActivity: [
+      {
+        id: "dp-1",
+        indicatorId: "ind-2",
+        assessmentId: null,
+        value: "180",
+        collectionDate: "2026-08-20T00:00:00.000Z",
+        collectionMethod: "secondary_data",
+        dataSource: "Training attendance",
+        geographicArea: "Hebron",
+        breakdown: null,
+        createdAt: "2026-08-21T09:00:00.000Z",
+        indicator: { indicatorText: "Number of youth trained" },
+      },
+    ],
+    ...overrides,
+  };
 }

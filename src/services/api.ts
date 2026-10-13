@@ -24,6 +24,7 @@ import type {
   ProjectDetail,
   ProjectDocument,
   ProjectExport,
+  ProjectDashboard,
   ProjectInput,
   ProjectUpdateInput,
   QualitativeEntryCreateResponse,
@@ -31,6 +32,11 @@ import type {
   RejectKpiSuggestionBody,
   RequestKpiSuggestionsBody,
   RequestKpiSuggestionsResponse,
+  Report,
+  ReportDetail,
+  ReportGenerateInput,
+  ReportGenerateResponse,
+  ReportListItem,
   ResultDeleteResponse,
   ResultNode,
   ResultNodeInput,
@@ -248,9 +254,10 @@ class ApiClient {
     return this.request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   }
 
-  // Dashboard
+  // Dashboard (mounted at /api/dashboard in the backend's src/app.ts)
+  /** Org staff and donor viewers get the same keys; the donor rows differ (see ProjectDashboard). */
   async getDashboard(projectId: string) {
-    return this.request(`/projects/${projectId}/dashboard`);
+    return this.request<ProjectDashboard>(`/dashboard/projects/${projectId}/dashboard`);
   }
 
   async getOrgOverview() {
@@ -443,12 +450,24 @@ class ApiClient {
   }
 
   // Reports
+  /** Newest first. Org staff get every report; donor viewers get published reports only (DonorReport). */
   async getReports(projectId: string) {
-    return this.request(`/projects/${projectId}/reports`);
+    return this.request<ReportListItem[]>(`/projects/${projectId}/reports`);
   }
 
-  async generateReport(projectId: string, config: object) {
-    return this.request(`/projects/${projectId}/reports/generate`, { method: 'POST', body: JSON.stringify(config) });
+  /** Org admins and platform admins: donor viewers can see the report (and its text) from now on. */
+  async publishReport(reportId: string) {
+    return this.request<Report>(`/reports/${reportId}/publish`, { method: 'PATCH' });
+  }
+
+  /** Org admins and platform admins: the report goes back to draft and donor viewers no longer see it. */
+  async unpublishReport(reportId: string) {
+    return this.request<Report>(`/reports/${reportId}/unpublish`, { method: 'PATCH' });
+  }
+
+  /** Org staff: `type` and `title` are required (400 otherwise); the AI narrative is written in the background. */
+  async generateReport(projectId: string, config: ReportGenerateInput) {
+    return this.request<ReportGenerateResponse>(`/projects/${projectId}/reports/generate`, { method: 'POST', body: JSON.stringify(config) });
   }
 
   async getReportStatus(reportId: string) {
@@ -568,8 +587,9 @@ class ApiClient {
   }
 
   // Report detail
+  /** One report with its narrative: any report for org staff; published ones only for donor viewers (404 otherwise). */
   async getReport(reportId: string) {
-    return this.request(`/reports/${reportId}`);
+    return this.request<ReportDetail>(`/reports/${reportId}`);
   }
 }
 

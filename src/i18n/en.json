@@ -48,7 +48,7 @@
     "reports": {
       "empty": "No reports generated yet.",
       "loadError": "We couldn't load the reports.",
-      "emptyReadOnly": "No reports have been published yet."
+      "emptyReadOnly": "Reports appear here once your organisation publishes them."
     },
     "assessments": {
       "reportStaffOnly": "Project staff review the AI report first. Reviewed findings are shared with you in published reports.",
@@ -484,6 +484,99 @@
     "quarterly_summary": "Quarterly summary",
     "annual_review": "Annual review",
     "donor_export": "Donor export"
+  },
+  "reports": {
+    "pageTitle": "Reports",
+    "pageSubtitle": "Reports for every project. A report stays a draft, seen by project staff only, until an org admin publishes it to donor viewers.",
+    "pageSubtitleReadOnly": "Reports your organisation has published for you, by project.",
+    "projectsLoadError": "We couldn't load the projects.",
+    "noProjects": "No projects yet. Create a project first, then generate its reports.",
+    "noProjectsReadOnly": "No projects yet.",
+    "generateInProject": "Generate a report",
+    "generateInProjectLabel": "Generate a report for {{project}}",
+    "untitled": "Untitled report",
+    "status": {
+      "draft": "Draft",
+      "published": "Published to donors"
+    },
+    "notFinished": "Not ready to publish: still being generated, or generation failed.",
+    "publish": "Publish",
+    "unpublish": "Unpublish",
+    "publishLabel": "Publish “{{title}}” to donors",
+    "unpublishLabel": "Unpublish “{{title}}”",
+    "read": "Read",
+    "readLabel": "Read “{{title}}”",
+    "review": "Review and publish",
+    "reviewLabel": "Review “{{title}}” and publish it to donors",
+    "confirmPublish": {
+      "title": "Publish “{{title}}” to donors?",
+      "intro": "Donor viewers in your organisation will be able to see:",
+      "seeDetails": "the report's title, type, donor format and period",
+      "seeText": "the full report text you have just read, which was written by AI",
+      "checkNames": "Names and quotes are not removed automatically: publish only if the text names no beneficiary and quotes no one who could be recognised.",
+      "notice": "They are told the report is ready. The report file stays with project staff. You can unpublish the report at any time.",
+      "action": "Publish to donors"
+    },
+    "confirmUnpublish": {
+      "title": "Unpublish “{{title}}”?",
+      "body": "The report goes back to draft, and donor viewers will no longer see it or its text. The notification they received, with the report title, stays in their list, and anything they have already read or copied stays with them.",
+      "action": "Unpublish"
+    },
+    "toastPublished": "“{{title}}” is published. Donor viewers can now read it.",
+    "toastUnpublished": "“{{title}}” is back to draft. Donor viewers no longer see it.",
+    "errors": {
+      "notFinished": "This report isn't finished, so it can't be published yet. Wait until it has been generated, or generate it again.",
+      "notFound": "This report no longer exists. The list has been refreshed.",
+      "publishFailed": "We couldn't publish the report. Try again.",
+      "unpublishFailed": "We couldn't unpublish the report. Try again."
+    },
+    "reader": {
+      "aiDraft": "AI written — review before publishing",
+      "aiDraftHint": "Donor viewers cannot see this draft. Read all of it before you publish: check that it names no beneficiary, quotes no one who could be recognised, and that its figures match your data. Names and quotes are not removed automatically.",
+      "aiPublished": "AI written, then reviewed and published to donor viewers by an org admin.",
+      "donorNote": "Published by your organisation. It was drafted with AI and reviewed before it was published.",
+      "frameTitle": "Text of “{{title}}”",
+      "loadError": "We couldn't load the report text.",
+      "noText": "This report has no text yet: it is still being generated, or generation failed.",
+      "publishHint": "Publishing lets donor viewers in your organisation read this text."
+    },
+    "generate": {
+      "trigger": "Generate report",
+      "title": "Generate a report",
+      "description": "AI drafts the report from the project's indicators and results. It stays a draft, seen by project staff only, until an org admin publishes it.",
+      "titleLabel": "Report title",
+      "titlePlaceholder": "e.g. Q3 2026 progress report",
+      "type": "Report type",
+      "donorFormat": "Donor format",
+      "periodStart": "Period start",
+      "periodEnd": "Period end",
+      "submit": "Generate report",
+      "submitting": "Starting…",
+      "toastStarted": "Generating “{{title}}”. It appears in the list as a draft when it is ready.",
+      "toastFailed": "We couldn't start generating the report. Try again.",
+      "errors": {
+        "summary": "Check the fields marked below.",
+        "titleRequired": "Enter a title for the report.",
+        "titleTooLong": "Keep the title to {{max}} characters or fewer.",
+        "donorFormat": "Choose a donor format.",
+        "invalidDate": "Enter a valid date.",
+        "endBeforeStart": "The period cannot end before it starts."
+      }
+    }
+  },
+  "dashboard": {
+    "loadError": "We couldn't load the project dashboard.",
+    "empty": "No indicators yet. Their progress appears here once the project's M&E framework has indicators.",
+    "scorecardTitle": "Indicators",
+    "currentValue": "Current value",
+    "noValue": "No data yet",
+    "target": "Target: {{value}}",
+    "targetNotSet": "Target: not set",
+    "trendsTitle": "Indicator trends",
+    "trendsEmpty": "No trend data yet. Trends appear once results have been recorded.",
+    "trendsTable": "Show the data as a table",
+    "month": "Month",
+    "noPoint": "—"
   },
   "projectForm": {
     "trigger": "New project",
