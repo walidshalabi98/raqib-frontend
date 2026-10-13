@@ -11,6 +11,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  /** Forgets this browser's session without leaving the screen (after a password reset with a link). */
+  endSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -49,8 +51,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     api.logout();
   };
 
+  const endSession = () => {
+    setUser(null);
+    api.clearToken();
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user && !!api.getToken(), login, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user && !!api.getToken(), login, logout, endSession }}>
       {children}
     </AuthContext.Provider>
   );

@@ -11,9 +11,11 @@ import type {
   Indicator,
   IndicatorDataResponse,
   IndicatorInput,
+  InviteUserResponse,
   LibraryEntry,
   LibraryFilters,
   LoginResponse,
+  OrgUser,
   Project,
   ProjectDetail,
   ProjectDocument,
@@ -27,10 +29,13 @@ import type {
   ReportGenerateInput,
   ReportGenerateResponse,
   ReportListItem,
+  ResetUserPasswordResponse,
   ResultDeleteResponse,
   ResultNode,
   ResultNodeInput,
   ResultUpdateResponse,
+  SessionTokens,
+  UserInviteInput,
 } from '@/types/api';
 import { ApiError } from '@/lib/apiError';
 import { emitAuthChange } from '@/lib/authEvents';
@@ -127,23 +132,67 @@ class ApiClient {
     }
 
     if (response.status === 401) {
-      // Try refresh
-      const refreshed = await this.tryRefresh();
-      if (refreshed) {
-        headers['Authorization'] = `Bearer ${this.getToken()}`;
-        const retry = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-        if (retry.ok) return this.parseBody<T>(retry);
+      // The access token expired (or the session ended): refresh once, then send the request again.
+      const refresh = await this.tryRefresh();
+      if (refresh.outcome === 'ended') return this.signOut();
+      if (refresh.outcome === 'unavailable') {
+        // The server could not refresh just now (429, a server error, offline): keep the session; the screen
+        // says "try again" (its status, or none when offline).
+        if (refresh.status === undefined) throw new Error('Network error — please check your connection');
+        throw new ApiError('Raqib could not continue your session just now. Wait a few minutes and try again.', refresh.status);
       }
-      this.clearToken();
-      window.location.href = '/';
-      throw new ApiError('Unauthorized', 401);
+      headers['Authorization'] = `Bearer ${this.getToken()}`;
+      let retry: Response;
+      try {
+        retry = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
+      } catch (err) {
+        throw new Error(err instanceof Error && err.message ? err.message : 'Network error — please check your connection');
+      }
+      // Only a second 401 means the session is over; any other refusal (400, 403, 409…) is the answer to show.
+      if (retry.status === 401) return this.signOut();
+      return this.readResponse<T>(retry);
     }
 
+    return this.readResponse<T>(response);
+  }
+
+  /** The parsed body of a successful response, or an ApiError with the response's status, message and code. */
+  private async readResponse<T>(response: Response): Promise<T> {
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new ApiError(error.message || 'API request failed', response.status);
+      throw new ApiError(error.message || 'API request failed', response.status, typeof error.code === 'string' ? error.code : undefined);
     }
+    return this.parseBody<T>(response);
+  }
 
+  /** The session is over (refresh refused, or still 401 after refreshing): forget it and go to sign in. */
+  private signOut(): never {
+    this.clearToken();
+    window.location.href = '/';
+    throw new ApiError('Unauthorized', 401);
+  }
+
+  /**
+   * A POST made before sign-in: sign-in, forgot password, and reset password with an emailed link. It
+   * sends no access token, and a 401 is the server's answer to this request (a wrong password, an invalid
+   * or expired reset link), so it is passed on with its status and message instead of the token refresh
+   * and sign-out that a signed-in call does on 401.
+   */
+  private async publicRequest<T>(endpoint: string, body: unknown): Promise<T> {
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      throw new Error(err instanceof Error && err.message ? err.message : 'Network error — please check your connection');
+    }
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new ApiError(error.message || 'API request failed', response.status, typeof error.code === 'string' ? error.code : undefined);
+    }
     return this.parseBody<T>(response);
   }
 
@@ -153,42 +202,74 @@ class ApiClient {
     return (text ? JSON.parse(text) : undefined) as T;
   }
 
-  private async tryRefresh(): Promise<boolean> {
+  /**
+   * Trades the refresh token for a new pair. `ended`: there is no session to continue (no refresh token, or
+   * the server refused it: signed out elsewhere, or the password changed). `unavailable`: the server could not
+   * answer now (rate limit, server error, offline), so the session is kept and the user can try again.
+   */
+  private async tryRefresh(): Promise<{ outcome: 'refreshed' | 'ended' } | { outcome: 'unavailable'; status?: number }> {
     const refreshToken = localStorage.getItem('raqib_refresh_token');
-    if (!refreshToken) return false;
+    if (!refreshToken) return { outcome: 'ended' };
+    let res: Response;
     try {
-      const res = await fetch(`${API_BASE}/auth/refresh`, {
+      res = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken }),
       });
-      if (!res.ok) return false;
-      const data = await res.json();
-      this.setToken(data.accessToken);
-      localStorage.setItem('raqib_refresh_token', data.refreshToken);
-      return true;
     } catch {
-      return false;
+      return { outcome: 'unavailable' };
+    }
+    if (res.status === 429 || res.status >= 500) return { outcome: 'unavailable', status: res.status };
+    if (!res.ok) return { outcome: 'ended' };
+    try {
+      this.storeSession(await res.json());
+      return { outcome: 'refreshed' };
+    } catch {
+      return { outcome: 'ended' };
     }
   }
 
-  // Auth
-  async login(email: string, password: string): Promise<LoginResponse> {
-    const data = await this.request<LoginResponse>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
+  /** Keeps a new token pair (sign-in, refresh, change password). */
+  private storeSession(data: { accessToken: string; refreshToken: string }) {
+    if (typeof data?.accessToken !== 'string' || typeof data?.refreshToken !== 'string') throw new Error('No tokens in the answer');
     this.setToken(data.accessToken);
     localStorage.setItem('raqib_refresh_token', data.refreshToken);
+  }
+
+  // Auth
+  /** Signs in. A wrong email or password is an ApiError with status 401 (the page stays, with its message). */
+  async login(email: string, password: string): Promise<LoginResponse> {
+    const data = await this.publicRequest<LoginResponse>('/auth/login', { email, password });
+    this.storeSession(data);
     this.setUser(data.user);
     return data;
   }
 
-  async forgotPassword(email: string) {
-    return this.request('/auth/forgot-password', {
+  /** Asks for a reset link. The server answers the same whether or not the account exists. */
+  async forgotPassword(email: string): Promise<void> {
+    await this.publicRequest<unknown>('/auth/forgot-password', { email });
+  }
+
+  /**
+   * Sets a new password with the token from a reset link (no sign-in). An invalid or expired link is an
+   * ApiError with status 401; a password the policy refuses is a 400 with the server's message.
+   */
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    await this.publicRequest<unknown>('/auth/reset-password', { token, newPassword });
+  }
+
+  /**
+   * The signed-in user changes their own password. The server ends every other session of the account and
+   * answers with a new token pair, which is kept so this session continues. A wrong current password or a
+   * refused new one is a 400 with its code.
+   */
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    const tokens = await this.request<SessionTokens>('/auth/change-password', {
       method: 'POST',
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ currentPassword, newPassword }),
     });
+    this.storeSession(tokens);
   }
 
   logout() {
@@ -442,12 +523,19 @@ class ApiClient {
   }
 
   // Users
-  async getUsers() {
-    return this.request('/users');
+  /** The organisation's members (org admins and platform admins). */
+  async getUsers(): Promise<OrgUser[]> {
+    return this.request<OrgUser[]>('/users');
   }
 
-  async inviteUser(data: object) {
-    return this.request('/users/invite', { method: 'POST', body: JSON.stringify(data) });
+  /** Adds a user. While email is off, the response carries their temporary password once (`temporaryPassword`). */
+  async inviteUser(data: UserInviteInput): Promise<InviteUserResponse> {
+    return this.request<InviteUserResponse>('/users/invite', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  /** An admin sets a new temporary password for a member; while email is off it is returned once. */
+  async resetUserPassword(userId: string): Promise<ResetUserPasswordResponse> {
+    return this.request<ResetUserPasswordResponse>(`/users/${encodeURIComponent(userId)}/reset-password`, { method: 'POST' });
   }
 
   // Beneficiaries

@@ -1,14 +1,5 @@
-User-agent: Googlebot
-Allow: /
-
-User-agent: Bingbot
-Allow: /
-
-User-agent: Twitterbot
-Allow: /
-
-User-agent: facebookexternalhit
-Allow: /
-
+# Staging is not for search engines. Crawlers may fetch pages so that they see "noindex" (the X-Robots-Tag
+# header in vercel.json and the robots meta tag in index.html): a page blocked here is never fetched, so a
+# linked address could still be listed without its content. Remove both noindex settings at the public launch.
 User-agent: *
 Allow: /

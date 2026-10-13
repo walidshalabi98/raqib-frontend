@@ -13,4 +13,6 @@ export const queryKeys = {
   report: (reportId: string) => ["report", reportId] as const,
   beneficiaryStats: (projectId: string) => ["beneficiary-stats", projectId] as const,
   libraryEntry: (id: string) => ["indicator-library", "entry", id] as const,
+  /** The organisation's members (Settings → Team members). */
+  users: ["users"] as const,
 };
