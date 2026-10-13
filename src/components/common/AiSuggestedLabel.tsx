@@ -21,6 +21,7 @@ export function AiSuggestedLabel({ lang, id, variant = "inline" }: AiSuggestedLa
     <p
       id={id}
       role="note"
+      lang={lang}
       className={cn(
         "items-center rounded-md border border-warning/40 bg-warning/10 font-medium",
         variant === "banner" ? "flex gap-2 px-3 py-2 text-sm" : "inline-flex gap-1.5 px-2 py-0.5 text-xs",

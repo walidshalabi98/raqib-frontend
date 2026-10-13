@@ -44,6 +44,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/common/NativeSelect";
 import { PersonalDataWarning } from "@/components/common/PersonalDataWarning";
+import { AiSuggestedLabel } from "@/components/common/AiSuggestedLabel";
 
 /**
  * The project's documents: upload, parsing status and the AI analysis
@@ -334,7 +335,7 @@ function DocumentRow({
           <div className="space-y-2 rounded-md border bg-muted/40 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-medium">{t("documents.summaryTitle")}</p>
-              <AiLabel lang={lang} />
+              <AiSuggestedLabel lang={lang} />
             </div>
             {analysis.summary && <p dir="auto" className="break-words text-sm">{analysis.summary}</p>}
             {analysis.keyFindings.length > 0 && <TextList items={analysis.keyFindings.slice(0, 3)} className="text-xs text-muted-foreground" />}
@@ -389,17 +390,6 @@ function ParsingStatusBadge({ status, stalled, lang }: { status: ParsingStatus; 
   );
 }
 
-/** The label every piece of AI content carries (CLAUDE.md rule 5). */
-function AiLabel({ lang }: { lang: AppLanguage }) {
-  const { t } = useTranslation(undefined, { lng: lang });
-  return (
-    <p role="note" className="inline-flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium">
-      <Sparkles aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-      {t("ai.suggestedLabel")}
-    </p>
-  );
-}
-
 /** Model text may be in either language: each item isolates its own direction. */
 function TextList({ items, className }: { items: readonly string[]; className?: string }) {
   return (
@@ -449,7 +439,7 @@ function AnalysisDialog({ doc, analysis, lang }: { doc: ProjectDocument; analysi
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 space-y-4 overflow-y-auto">
-            <AiLabel lang={lang} />
+            <AiSuggestedLabel lang={lang} />
             {analysis.summary && (
               <AnalysisSection title={t("documents.sections.summary")}>
                 <p dir="auto" className="break-words text-sm text-muted-foreground">{analysis.summary}</p>

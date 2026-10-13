@@ -59,6 +59,21 @@ src/
 docs/               build guide and UX standards
 ```
 
+## KPI Assistant (Phase 4)
+
+The KPI Assistant suggests indicators for the results chain (spec: `raqib-backend/knowledge/kpi-assistant-spec.md` Part A). It lives on the project's **M&E Framework** tab, inside the results chain panel:
+
+- **Suggest KPIs** in the panel header (all results) and on each goal, outcome and output row. Activities get no button.
+- Suggestions appear as cards under their result. **Accept**, **Edit & accept** (the indicator form, pre-filled from the suggestion; only the fields you change are sent), **Reject** (pick a reason, then confirm) and **Show alternatives**.
+- After you add a goal, outcome or output, a prompt offers suggestions for it. Nothing is sent to the AI until you click; **Not now** hides the prompt for this session.
+- Each result's indicator count opens its indicators, with their source, the AI label and a quality badge. An indicator with quality problems offers **Show alternatives**.
+- The indicator table has a **Source** column. AI-made indicators keep the "AI suggested — review before approval" label until an org admin approves that indicator; approving the framework does not remove it. Org and platform admins get an **Approve** button on unapproved indicators once the framework is approved or active.
+- **Request alternative** in the AI KPI Builder review step uses the same assistant. The alternatives appear on the framework tab; the toast's **Open the framework** link opens it directly (`/projects/:id?tab=me-framework`; any project tab can be opened with `?tab=`).
+- Donor viewers see none of the KPI Assistant UI.
+- Without an Anthropic API key on the backend, the panel says AI suggestions are not set up and the buttons stay visible but disabled. You can still add indicators by hand or from the library.
+
+Code: `src/components/kpi/` (cards, progress, provider), `src/hooks/useKpiSuggestions.ts` and `useKpiAssistant.ts`, `src/lib/kpiSuggestions.ts` (pure helpers), `src/components/project/ResultsChainPanel.tsx` and `ResultIndicatorList.tsx`. Toast messages are written in the user's language. The global toaster does not set `dir` yet, so an Arabic toast is laid out left-to-right; that fix is planned for Phase 6. The KPI components have axe checks in English and Arabic (`src/components/kpi/KpiAccessibility.test.tsx`, `axe-core`; colour contrast is checked on the screenshots, which jsdom cannot do). Screenshots in English and Arabic at 375 px and 1440 px go in `docs/screenshots/phase4/` with the pull request.
+
 ## Working on Raqib
 
 Read [`CLAUDE.md`](CLAUDE.md), [`docs/BUILD_GUIDE.md`](docs/BUILD_GUIDE.md) and [`docs/UX_STANDARDS.md`](docs/UX_STANDARDS.md) before changing screens.

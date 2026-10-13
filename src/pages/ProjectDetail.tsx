@@ -1,7 +1,8 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/services/api";
 import { SECTOR_LABELS } from "@/lib/constants";
+import { projectTabFrom } from "@/lib/projectTabs";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { MetricCard } from "@/components/common/MetricCard";
@@ -48,6 +49,9 @@ function getStageIndex(status: string): number {
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
+  // `?tab=me-framework` opens that tab (the AI Wizard's "Open the framework" toast action, Phase 4).
+  const [searchParams] = useSearchParams();
+  const initialTab = projectTabFrom(searchParams.get("tab"));
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
@@ -95,7 +99,7 @@ export default function ProjectDetail() {
         </div>
       </div>
 
-      <Tabs defaultValue="overview" className="w-full">
+      <Tabs defaultValue={initialTab} className="w-full">
         <TabsList className="w-full justify-start overflow-x-auto bg-transparent border-b rounded-none h-auto p-0 gap-0">
           {tabs.map(tab => (
             <TabsTrigger

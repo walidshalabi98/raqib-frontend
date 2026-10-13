@@ -1,11 +1,13 @@
 import { Fragment, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api } from "@/services/api";
 import type { Indicator, Milestone, ResultNode } from "@/types/api";
 import { MethodPill } from "@/components/common/MethodPill";
 import { StatusDot } from "@/components/common/StatusDot";
 import { LevelBadge } from "@/components/common/LevelBadge";
+import { AiSuggestedLabel } from "@/components/common/AiSuggestedLabel";
+import { StandardBadge } from "@/components/kpi/StandardBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,13 +15,15 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { IndicatorDialog } from "@/components/project/IndicatorDialog";
 import { ResultsChainPanel } from "@/components/project/ResultsChainPanel";
-import { useFrameworkResults } from "@/hooks/useFrameworkData";
+import { invalidateFrameworkData, useFrameworkResults } from "@/hooks/useFrameworkData";
+import { useOptionalAuth } from "@/contexts/AuthContext";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
-import { needsAiReviewLabel } from "@/lib/indicatorForm";
+import type { AppLanguage } from "@/i18n";
+import { canApproveIndicator, needsAiReviewLabel } from "@/lib/indicatorForm";
 import { queryKeys } from "@/lib/queryKeys";
 import {
   ChevronDown, ChevronRight, Loader2, Plus, Pencil,
-  AlertTriangle, Clock, CheckCircle2, Users, Sparkles,
+  AlertTriangle, Clock, CheckCircle2, Users, BadgeCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/utils";
@@ -126,6 +130,29 @@ function CreateFrameworkDialog({ projectId, onCreated }: { projectId: string; on
   );
 }
 
+/**
+ * Where an indicator comes from (knowledge/me-foundations.md §3 provenance; design section 9.5): the provenance text,
+ * the standard or library badge, and the library id when the badge shows the standard reference instead.
+ */
+function SourceCell({ indicator, lang }: { indicator: Indicator; lang: AppLanguage }) {
+  const { t } = useTranslation(undefined, { lng: lang });
+  return (
+    <div lang={lang} className="flex min-w-0 flex-col items-start gap-1">
+      <span className="text-xs text-muted-foreground">{t(`provenance.${indicator.provenance}`)}</span>
+      <StandardBadge libraryId={indicator.libraryId} standardReferenceCode={indicator.standardReferenceCode} lang={lang} />
+      {indicator.libraryId && indicator.standardReferenceCode && (
+        <span className="font-mono text-[10px] text-muted-foreground" dir="ltr">{indicator.libraryId}</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The framework's indicators as a table or a timeline, with the results chain panel (and its KPI Assistant) above.
+ * Phase 4 (design section 9.5, D18): a Source column, the "AI suggested — review before approval" label until the
+ * indicator itself is approved, and for org and platform admins an Approve button on unapproved indicators once the
+ * framework is approved or active.
+ */
 export function IndicatorTable({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -133,6 +160,7 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
 
   const lang = useUserLanguage();
   const { t } = useTranslation(undefined, { lng: lang });
+  const role = useOptionalAuth()?.user?.role;
 
   const { data: framework, isLoading } = useQuery({
     queryKey: queryKeys.framework(projectId),
@@ -144,6 +172,18 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.framework(projectId) });
 
+  const approveMutation = useMutation({
+    mutationFn: (ind: Indicator) => api.approveIndicator(ind.id),
+    onSuccess: (_saved, ind) => {
+      toast.success(t("indicatorTable.toast.approved"));
+      void invalidateFrameworkData(queryClient, { projectId, frameworkId: ind.frameworkId });
+    },
+    onError: (err) => {
+      toast.error(t("indicatorTable.toast.approveFailed"), { description: errorMessage(err, "") || undefined });
+    },
+  });
+  const approvingId = approveMutation.isPending ? approveMutation.variables?.id : undefined;
+
   // This screen is English apart from the translated parts, so those carry their own lang (WCAG 3.1.2).
   const editButton = (ind: Indicator) => (
     <IndicatorDialog
@@ -151,7 +191,6 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
       projectId={projectId}
       frameworkId={ind.frameworkId}
       indicator={ind}
-      frameworkStatus={framework?.status}
       resultNodes={resultNodes}
       trigger={
         <Button variant="ghost" size="sm" className="h-7 px-2" lang={lang} aria-label={t("indicatorTable.editIndicator", { name: ind.indicatorText })}>
@@ -208,7 +247,6 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
             mode="create"
             projectId={projectId}
             frameworkId={framework.id}
-            frameworkStatus={framework.status}
             resultNodes={resultNodes}
             trigger={
               <Button variant="outline" size="sm" lang={lang}>
@@ -220,7 +258,7 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      <ResultsChainPanel projectId={projectId} frameworkId={framework.id} />
+      <ResultsChainPanel projectId={projectId} frameworkId={framework.id} indicators={indicators} />
 
       {/* Table View */}
       {view === "table" && (
@@ -231,6 +269,7 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                 <th className="w-8" />
                 <th className="text-left px-3 py-3 font-medium text-muted-foreground">Indicator</th>
                 <th className="text-left px-3 py-3 font-medium text-muted-foreground">Level</th>
+                <th className="text-start px-3 py-3 font-medium text-muted-foreground" lang={lang}>{t("indicatorTable.source")}</th>
                 <th className="text-left px-3 py-3 font-medium text-muted-foreground">Method</th>
                 <th className="text-left px-3 py-3 font-medium text-muted-foreground hidden md:table-cell">Target</th>
                 <th className="text-left px-3 py-3 font-medium text-muted-foreground">Current</th>
@@ -256,10 +295,8 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                           {ind.result.code}
                         </span>
                       )}
-                      {needsAiReviewLabel(ind.provenance, ind.isApproved, framework.status) && (
-                        <span lang={lang} className="mt-0.5 flex items-center gap-1 text-[10px] font-medium text-foreground">
-                          <Sparkles aria-hidden="true" className="h-3 w-3" /> {t("ai.suggestedLabel")}
-                        </span>
+                      {needsAiReviewLabel(ind.provenance, ind.isApproved) && (
+                        <div lang={lang} className="mt-1"><AiSuggestedLabel lang={lang} /></div>
                       )}
                       {ind.responsibility && (
                         <span className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -268,6 +305,7 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                       )}
                     </td>
                     <td className="px-3 py-3"><LevelBadge level={ind.level} /></td>
+                    <td className="px-3 py-3 min-w-[8rem]"><SourceCell indicator={ind} lang={lang} /></td>
                     <td className="px-3 py-3"><MethodPill method={ind.dataCollectionMethod} size="xs" /></td>
                     <td className="px-3 py-3 text-muted-foreground hidden md:table-cell">{ind.targetValue || "N/A"}</td>
                     <td className="px-3 py-3 font-medium">{ind.currentValue || "N/A"}</td>
@@ -276,12 +314,30 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                     </td>
                     <td className="px-3 py-3 text-center"><StatusDot status={ind.status} showLabel /></td>
                     <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                      {editButton(ind)}
+                      <div className="flex flex-col items-center gap-1">
+                        {editButton(ind)}
+                        {canApproveIndicator(role, ind, framework.status) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2"
+                            lang={lang}
+                            aria-label={t("indicatorTable.approveIndicator", { name: ind.indicatorText })}
+                            aria-disabled={approvingId ? "true" : undefined}
+                            onClick={() => { if (!approveMutation.isPending) approveMutation.mutate(ind); }}
+                          >
+                            {approvingId === ind.id
+                              ? <Loader2 aria-hidden="true" className="h-3 w-3 me-1 animate-spin" />
+                              : <BadgeCheck aria-hidden="true" className="h-3 w-3 me-1" />}
+                            {t("indicatorTable.approve")}
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                   {expanded === ind.id && (
                     <tr key={`${ind.id}-detail`}>
-                      <td colSpan={9} className="px-6 py-4 bg-secondary/20">
+                      <td colSpan={10} className="px-6 py-4 bg-secondary/20">
                         <div className="grid md:grid-cols-2 gap-4">
                           <div className="space-y-2">
                             {ind.aiRationale && (

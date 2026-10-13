@@ -12,6 +12,9 @@ import { errorMessage } from "@/lib/utils";
 import { dirFor } from "@/i18n";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { PersonalDataWarning } from "@/components/common/PersonalDataWarning";
+import { useOptionalAuth } from "@/contexts/AuthContext";
+import { useRequestKpiSuggestions } from "@/hooks/useKpiSuggestions";
+import { canSuggestKpis, requestErrorCode, runErrorCode } from "@/lib/kpiSuggestions";
 import type { Indicator } from "@/types/api";
 
 const steps = ["Upload Documents", "AI Processing", "Review Framework", "Summary"];
@@ -33,6 +36,18 @@ const METHOD_LABELS: Record<string, string> = {
   secondary_data: "Secondary Data",
 };
 
+/** The project page opened on its M&E framework tab, where alternatives appear under their result. */
+function frameworkTabPath(projectId: string): string {
+  return `/projects/${projectId}?tab=me-framework`;
+}
+
+/**
+ * The AI KPI Builder: upload documents, generate a framework, review it and approve it. "Request alternative" on a
+ * generated indicator asks the KPI Assistant for alternatives (knowledge/kpi-assistant-spec.md §A2 trigger 3; design
+ * section 9.5): a toast says they are being prepared, with a link to the framework tab; errors are translated by code
+ * (503 not configured, 422 not suggestable or nothing to suggest, 409 stale or already running, 429 rate limit or
+ * budget). Roles without the assistant (donor viewers) do not get the button.
+ */
 export default function AIWizard() {
   const navigate = useNavigate();
   const { id: projectId } = useParams();
@@ -41,6 +56,11 @@ export default function AIWizard() {
   const { t } = useTranslation(undefined, { lng: lang });
   const warningId = useId();
   const [currentStep, setCurrentStep] = useState(0);
+  const canAskAlternatives = canSuggestKpis(useOptionalAuth()?.user?.role);
+  const alternatives = useRequestKpiSuggestions(projectId ?? "");
+  const requestingId = alternatives.isPending && alternatives.variables && "indicatorId" in alternatives.variables
+    ? alternatives.variables.indicatorId
+    : null;
 
   // Step 0: Upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -190,14 +210,23 @@ export default function AIWizard() {
     }
   };
 
-  // Request alternative for indicator
-  const handleAlternative = async (indId: string) => {
-    try {
-      await api.requestAlternative(indId);
-      toast.success("Alternative requested — check back shortly");
-    } catch (err) {
-      toast.error(errorMessage(err, "Failed to request alternative"));
-    }
+  // Alternatives to an indicator through the KPI Assistant; they appear under the indicator's result on the framework tab.
+  const handleAlternative = (indId: string) => {
+    if (!projectId || alternatives.isPending) return;
+    alternatives.mutate({ scope: "alternatives", indicatorId: indId }, {
+      onSuccess: (response) => {
+        // A 200 can carry a run that failed (e.g. the AI refused).
+        const failed = runErrorCode(response.run);
+        if (failed) {
+          toast.error(t(`kpi.errors.${failed}`));
+          return;
+        }
+        toast.success(t("kpi.toast.alternativesQueued"), {
+          action: { label: t("kpi.toast.openFramework"), onClick: () => navigate(frameworkTabPath(projectId)) },
+        });
+      },
+      onError: (err) => toast.error(t(`kpi.errors.${requestErrorCode(err)}`)),
+    });
   };
 
   // Approve entire framework
@@ -381,9 +410,21 @@ export default function AIWizard() {
                         >
                           <Check className="h-3.5 w-3.5" />
                         </button>
-                        <button onClick={() => handleAlternative(ind.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground" title="Request alternative">
-                          <RefreshCw className="h-3.5 w-3.5" />
-                        </button>
+                        {canAskAlternatives && (
+                          <button
+                            type="button"
+                            onClick={() => handleAlternative(ind.id)}
+                            className={`p-1.5 rounded hover:bg-secondary text-muted-foreground ${requestingId ? "cursor-not-allowed opacity-60" : ""}`}
+                            lang={lang}
+                            title={t("kpi.actions.alternativesNamed", { name: ind.indicatorText })}
+                            aria-label={t("kpi.actions.alternativesNamed", { name: ind.indicatorText })}
+                            aria-disabled={requestingId ? "true" : undefined}
+                          >
+                            {requestingId === ind.id
+                              ? <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+                              : <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />}
+                          </button>
+                        )}
                         <button onClick={() => handleDeleteIndicator(ind.id)} className="p-1.5 rounded hover:bg-danger/10 text-danger" title="Remove">
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>

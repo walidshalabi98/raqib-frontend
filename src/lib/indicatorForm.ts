@@ -12,6 +12,7 @@ import type {
   IndicatorStatus,
   IntermediateTarget,
   Milestone,
+  UserRole,
 } from "@/types/api";
 import { isIsoDate, toDateInput } from "@/lib/dates";
 
@@ -154,47 +155,62 @@ export function emptyIndicatorForm(overrides: Partial<IndicatorFormValues> = {})
 
 const str = (value: string | null | undefined): string => value ?? "";
 
-/** The form values for an existing indicator. */
-export function indicatorToFormValues(ind: Indicator): IndicatorFormValues {
-  const calc: IndicatorCalculation = ind.calculation ?? {};
+/**
+ * Fields the form reads from an indicator or a request body. `IndicatorInput` (e.g. a KPI suggestion's draft) and a
+ * stored `Indicator` both fit; provenance and phases are not form fields.
+ */
+export type IndicatorFormSource = Omit<IndicatorInput, "provenance" | "phases">;
+
+/**
+ * The form values for an indicator body (knowledge/me-foundations.md §3): missing or null fields become empty
+ * inputs, dates become date-input values. Used for a stored indicator (edit) and for a KPI suggestion's draft
+ * (Edit & accept; design section 9.5).
+ */
+export function inputToFormValues(input: IndicatorFormSource): IndicatorFormValues {
+  const calc: IndicatorCalculation = input.calculation ?? {};
   return emptyIndicatorForm({
-    indicatorText: str(ind.indicatorText),
-    indicatorTextAr: str(ind.indicatorTextAr),
-    level: ind.level ?? "output",
-    resultId: str(ind.resultId),
-    status: ind.status ?? "not_started",
-    definition: str(ind.definition),
-    unit: str(ind.unit),
-    direction: ind.direction ?? "",
+    indicatorText: str(input.indicatorText),
+    indicatorTextAr: str(input.indicatorTextAr),
+    level: input.level ?? "output",
+    resultId: str(input.resultId),
+    status: input.status ?? "not_started",
+    definition: str(input.definition),
+    unit: str(input.unit),
+    direction: input.direction ?? "",
     numerator: str(calc.numerator),
     denominator: str(calc.denominator),
     formula: str(calc.formula),
     rounding: str(calc.rounding),
-    disaggregation: Array.isArray(ind.disaggregation) ? ind.disaggregation.filter((k) => typeof k === "string") : [],
-    dataCollectionMethod: ind.dataCollectionMethod ?? "hh_survey",
-    frequency: ind.frequency ?? "quarterly",
-    meansOfVerification: str(ind.meansOfVerification),
-    responsibility: str(ind.responsibility),
-    baselineValue: str(ind.baselineValue),
-    baselineDate: toDateInput(ind.baselineDate),
-    baselineMethod: str(ind.baselineMethod),
-    targetValue: str(ind.targetValue),
-    targetJustification: str(ind.targetJustification),
-    intermediateTargets: Array.isArray(ind.intermediateTargets)
-      ? ind.intermediateTargets.map((t) => ({ date: toDateInput(t.date), value: str(t.value) }))
+    disaggregation: Array.isArray(input.disaggregation) ? input.disaggregation.filter((k) => typeof k === "string") : [],
+    dataCollectionMethod: input.dataCollectionMethod ?? "hh_survey",
+    frequency: input.frequency ?? "quarterly",
+    meansOfVerification: str(input.meansOfVerification),
+    responsibility: str(input.responsibility),
+    baselineValue: str(input.baselineValue),
+    baselineDate: toDateInput(input.baselineDate),
+    baselineMethod: str(input.baselineMethod),
+    targetValue: str(input.targetValue),
+    targetJustification: str(input.targetJustification),
+    intermediateTargets: Array.isArray(input.intermediateTargets)
+      ? input.intermediateTargets.map((t) => ({ date: toDateInput(t.date), value: str(t.value) }))
       : [],
-    currentValue: str(ind.currentValue),
-    libraryId: str(ind.libraryId),
-    standardReferenceCode: str(ind.standardReferenceCode),
-    assumptions: str(ind.assumptions),
-    startDate: toDateInput(ind.startDate),
-    endDate: toDateInput(ind.endDate),
-    actualStartDate: toDateInput(ind.actualStartDate),
-    actualEndDate: toDateInput(ind.actualEndDate),
-    milestones: Array.isArray(ind.milestones)
-      ? ind.milestones.map((m) => ({ label: str(m.label), date: toDateInput(m.date), completed: Boolean(m.completed) }))
+    currentValue: str(input.currentValue),
+    libraryId: str(input.libraryId),
+    standardReferenceCode: str(input.standardReferenceCode),
+    assumptions: str(input.assumptions),
+    startDate: toDateInput(input.startDate),
+    endDate: toDateInput(input.endDate),
+    actualStartDate: toDateInput(input.actualStartDate),
+    actualEndDate: toDateInput(input.actualEndDate),
+    milestones: Array.isArray(input.milestones)
+      ? input.milestones.map((m) => ({ label: str(m.label), date: toDateInput(m.date), completed: Boolean(m.completed) }))
       : [],
   });
+}
+
+/** The form values for an existing indicator. */
+export function indicatorToFormValues(ind: Indicator): IndicatorFormValues {
+  return inputToFormValues(ind);
 }
 
 // ---------------------------------------------------------------- helpers
@@ -224,22 +240,42 @@ export function isAiProvenance(provenance: IndicatorProvenance | null | undefine
   return provenance === "ai_suggested" || provenance === "ai_generated";
 }
 
-/** True once an org admin has approved the framework ("approved", or "active" after it). */
+/**
+ * True once an org admin has approved the framework ("approved", or "active" after it). Indicator approval is
+ * offered from then on (IndicatorTable; design section 9.5).
+ */
 export function isFrameworkApproved(status: FrameworkStatus | null | undefined): boolean {
   return status === "approved" || status === "active";
 }
 
 /**
- * The "AI suggested — review before approval" label stays on AI-made
- * indicators until an org admin approves them (CLAUDE.md rule 5): the
- * indicator itself, or its whole framework.
+ * The "AI suggested — review before approval" label stays on an AI-made indicator until an org admin approves the
+ * indicator itself (raqib-frontend CLAUDE.md rule 5; knowledge/kpi-assistant-spec.md §A7 with design deviation D18):
+ * approving the framework no longer removes it, because an indicator accepted into an already approved framework
+ * has not been reviewed.
  */
 export function needsAiReviewLabel(
   provenance: IndicatorProvenance | null | undefined,
   isApproved: boolean | null | undefined,
+): boolean {
+  return isAiProvenance(provenance) && !isApproved;
+}
+
+/** Roles that may approve an indicator (PATCH /api/indicators/:id/approve; raqib-backend src/routes/indicators.ts). */
+export const INDICATOR_APPROVER_ROLES: readonly UserRole[] = ["org_admin", "platform_admin"];
+
+/**
+ * Whether the indicator table offers "Approve" for an indicator (design D18 and section 9.5): an org or platform admin,
+ * an indicator not yet approved, in a framework that is already approved or active (before that, approving the
+ * framework approves its indicators).
+ */
+export function canApproveIndicator(
+  role: string | null | undefined,
+  indicator: { isApproved: boolean | null | undefined },
   frameworkStatus: FrameworkStatus | null | undefined,
 ): boolean {
-  return isAiProvenance(provenance) && !isApproved && !isFrameworkApproved(frameworkStatus);
+  return typeof role === "string" && (INDICATOR_APPROVER_ROLES as readonly string[]).includes(role)
+    && !indicator.isApproved && isFrameworkApproved(frameworkStatus);
 }
 
 /** A library id as the library stores it: trimmed and upper-case ("fs-01 " → "FS-01"). */
@@ -552,4 +588,14 @@ export function changedFields(before: IndicatorInput, after: IndicatorInput): In
  */
 export function buildUpdatePayload(indicator: Indicator, values: IndicatorFormValues): IndicatorInput {
   return changedFields(formValuesToPayload(indicatorToFormValues(indicator)), formValuesToPayload(values));
+}
+
+/**
+ * The edits sent when a KPI suggestion is accepted from the form (design sections 8.1 and 9.5): the fields whose
+ * values differ from the suggestion's draft, both sides converted the same way so formatting never counts as an
+ * edit; `undefined` when nothing changed (the suggestion is then accepted as is, status `accepted`).
+ */
+export function acceptEdits(draft: IndicatorFormSource, values: IndicatorFormValues): IndicatorInput | undefined {
+  const edits = changedFields(formValuesToPayload(inputToFormValues(draft)), formValuesToPayload(values));
+  return Object.keys(edits).length > 0 ? edits : undefined;
 }

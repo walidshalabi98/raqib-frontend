@@ -1,0 +1,313 @@
+import { describe, expect, it } from "vitest";
+import i18n from "@/i18n";
+import { ApiError } from "@/lib/apiError";
+import { KPI_REJECT_REASONS } from "@/lib/constants";
+import {
+  KPI_FRAMEWORK_POLL_CAP_MS,
+  KPI_RESULT_POLL_CAP_MS,
+  REJECTION_SCOPE,
+  acceptedToastText,
+  bodyForRun,
+  canSuggestKpis,
+  focusCandidates,
+  groupSuggestions,
+  isRetryableError,
+  isSuggestableLevel,
+  kpiPollInterval,
+  kpiRunNeedsRefresh,
+  mergeRunIntoList,
+  progressStepAt,
+  qualityBand,
+  rejectEffect,
+  rejectEffectKeys,
+  requestErrorCode,
+  runErrorCode,
+  runTargetKey,
+  shownStepIndex,
+  suggestionReadingOrder,
+  warningText,
+  withoutSuggestion,
+} from "@/lib/kpiSuggestions";
+import { makeKpiRun, makeKpiSuggestion, makeKpiSuggestionList, makeKpiWarning, sampleResultNodes } from "@/test/fixtures";
+
+const CREATED = Date.parse("2026-10-13T08:00:00.000Z");
+const at = (ms: number) => CREATED + ms;
+const en = i18n.getFixedT("en");
+const ar = i18n.getFixedT("ar");
+
+describe("qualityBand", () => {
+  it("uses the spec thresholds: ≥ 85 strong, 65–84 review, < 65 weak", () => {
+    expect(qualityBand(100)).toBe("strong");
+    expect(qualityBand(85)).toBe("strong");
+    expect(qualityBand(84)).toBe("review");
+    expect(qualityBand(65)).toBe("review");
+    expect(qualityBand(64)).toBe("weak");
+    expect(qualityBand(0)).toBe("weak");
+  });
+});
+
+describe("canSuggestKpis and isSuggestableLevel", () => {
+  it("allows org admins, platform admins and M&E officers, never donor viewers or signed-out users", () => {
+    expect(canSuggestKpis("org_admin")).toBe(true);
+    expect(canSuggestKpis("platform_admin")).toBe(true);
+    expect(canSuggestKpis("me_officer")).toBe(true);
+    expect(canSuggestKpis("donor_viewer")).toBe(false);
+    expect(canSuggestKpis(undefined)).toBe(false);
+    expect(canSuggestKpis(null)).toBe(false);
+    expect(canSuggestKpis("someone_else")).toBe(false);
+  });
+
+  it("suggests for impact, outcome and output, never activities", () => {
+    expect(["impact", "outcome", "output"].every((level) => isSuggestableLevel(level))).toBe(true);
+    expect(isSuggestableLevel("activity")).toBe(false);
+    expect(isSuggestableLevel(undefined)).toBe(false);
+  });
+});
+
+describe("kpiRunNeedsRefresh", () => {
+  const result = makeKpiRun({ status: "running", scope: "result" });
+  const alternatives = makeKpiRun({ status: "running", scope: "alternatives" });
+  const framework = makeKpiRun({ status: "running", scope: "framework", resultId: null });
+
+  it("polls a result or alternatives run for 2 minutes from createdAt", () => {
+    expect(kpiRunNeedsRefresh(result, at(0))).toBe(true);
+    expect(kpiRunNeedsRefresh(result, at(KPI_RESULT_POLL_CAP_MS - 1))).toBe(true);
+    expect(kpiRunNeedsRefresh(result, at(KPI_RESULT_POLL_CAP_MS))).toBe(false);
+    expect(kpiRunNeedsRefresh(alternatives, at(KPI_RESULT_POLL_CAP_MS - 1))).toBe(true);
+    expect(kpiRunNeedsRefresh(alternatives, at(KPI_RESULT_POLL_CAP_MS))).toBe(false);
+  });
+
+  it("polls a framework run for 10 minutes", () => {
+    expect(KPI_FRAMEWORK_POLL_CAP_MS).toBe(600_000);
+    expect(kpiRunNeedsRefresh(framework, at(KPI_RESULT_POLL_CAP_MS + 1))).toBe(true);
+    expect(kpiRunNeedsRefresh(framework, at(KPI_FRAMEWORK_POLL_CAP_MS - 1))).toBe(true);
+    expect(kpiRunNeedsRefresh(framework, at(KPI_FRAMEWORK_POLL_CAP_MS))).toBe(false);
+  });
+
+  it("never polls a finished run, and treats a future createdAt (clock skew) as just started", () => {
+    expect(kpiRunNeedsRefresh(makeKpiRun({ status: "completed" }), at(1))).toBe(false);
+    expect(kpiRunNeedsRefresh(makeKpiRun({ status: "failed" }), at(1))).toBe(false);
+    expect(kpiRunNeedsRefresh(result, at(-30_000))).toBe(true);
+    expect(kpiRunNeedsRefresh(result, new Date(at(1_000)))).toBe(true);
+  });
+});
+
+describe("kpiPollInterval", () => {
+  it("backs off 2 s → 5 s after 20 s → 10 s after a minute for result runs", () => {
+    const run = makeKpiRun({ status: "running", scope: "result" });
+    expect(kpiPollInterval(run, at(0))).toBe(2_000);
+    expect(kpiPollInterval(run, at(19_999))).toBe(2_000);
+    expect(kpiPollInterval(run, at(20_000))).toBe(5_000);
+    expect(kpiPollInterval(run, at(59_999))).toBe(5_000);
+    expect(kpiPollInterval(run, at(60_000))).toBe(10_000);
+    expect(kpiPollInterval(run, at(KPI_RESULT_POLL_CAP_MS))).toBe(false);
+  });
+
+  it("starts at 3 s for framework runs and stops after 10 minutes", () => {
+    const run = makeKpiRun({ status: "running", scope: "framework", resultId: null });
+    expect(kpiPollInterval(run, at(0))).toBe(3_000);
+    expect(kpiPollInterval(run, at(30_000))).toBe(5_000);
+    expect(kpiPollInterval(run, at(5 * 60_000))).toBe(10_000);
+    expect(kpiPollInterval(run, at(KPI_FRAMEWORK_POLL_CAP_MS))).toBe(false);
+  });
+
+  it("stops once the run finished", () => {
+    expect(kpiPollInterval(makeKpiRun({ status: "completed" }), at(1_000))).toBe(false);
+  });
+});
+
+describe("progressStepAt and shownStepIndex", () => {
+  it("shows context, then retrieval, then model, never later while waiting", () => {
+    expect(progressStepAt(0)).toBe("context");
+    expect(progressStepAt(1_499)).toBe("context");
+    expect(progressStepAt(1_500)).toBe("retrieval");
+    expect(progressStepAt(3_999)).toBe("retrieval");
+    expect(progressStepAt(4_000)).toBe("model");
+    expect(progressStepAt(60_000)).toBe("model");
+  });
+
+  it("puts saving and done after the four shown steps", () => {
+    expect(shownStepIndex("context")).toBe(0);
+    expect(shownStepIndex("validation")).toBe(3);
+    expect(shownStepIndex("saving")).toBe(4);
+    expect(shownStepIndex("done")).toBe(4);
+  });
+});
+
+describe("groupSuggestions", () => {
+  const nodes = sampleResultNodes();
+
+  it("groups by result in the API's order and drops unknown or deleted results and repeated ids", () => {
+    const a = makeKpiSuggestion({ id: "a", sortOrder: 2 });
+    const b = makeKpiSuggestion({ id: "b", sortOrder: 1 });
+    const later = makeKpiSuggestion({ id: "later", sortOrder: 1, createdAt: "2026-10-13T09:00:00.000Z" });
+    const other = makeKpiSuggestion({ id: "o2-1", resultId: "o2", resultCode: "O2" });
+    const unknown = makeKpiSuggestion({ id: "x", resultId: "gone" });
+    const deleted = makeKpiSuggestion({ id: "y", resultId: null });
+    const groups = groupSuggestions([later, a, other, unknown, b, deleted, a], nodes);
+    expect([...groups.keys()].sort()).toEqual(["o1", "o2"]);
+    expect(groups.get("o1")?.items.map((i) => i.suggestion.id)).toEqual(["b", "a", "later"]);
+    expect(groups.get("o2")?.items.map((i) => i.suggestion.id)).toEqual(["o2-1"]);
+  });
+
+  it("nests alternatives under their source card, else groups them by source", () => {
+    const source = makeKpiSuggestion({ id: "src" });
+    const alt1 = makeKpiSuggestion({ id: "alt1", alternativeOfSuggestionId: "src", sortOrder: 1, createdAt: "2026-10-13T09:00:00.000Z" });
+    const alt2 = makeKpiSuggestion({ id: "alt2", alternativeOfSuggestionId: "src", sortOrder: 2, createdAt: "2026-10-13T09:00:00.000Z" });
+    const ofRejected = makeKpiSuggestion({ id: "alt3", alternativeOfSuggestionId: "rejected-earlier" });
+    const ofIndicator = makeKpiSuggestion({ id: "alt4", alternativeOfIndicatorId: "ind-1" });
+    const ofIndicator2 = makeKpiSuggestion({ id: "alt5", alternativeOfIndicatorId: "ind-1", sortOrder: 2 });
+    const group = groupSuggestions([alt2, ofIndicator, alt1, ofRejected, source, ofIndicator2], nodes).get("o1");
+    expect(group?.items).toHaveLength(1);
+    expect(group?.items[0].suggestion.id).toBe("src");
+    expect(group?.items[0].alternatives.map((s) => s.id)).toEqual(["alt1", "alt2"]);
+    expect(group?.alternativeGroups.map((g) => [g.source.kind, g.source.id, g.suggestions.map((s) => s.id)])).toEqual([
+      ["suggestion", "rejected-earlier", ["alt3"]],
+      ["indicator", "ind-1", ["alt4", "alt5"]],
+    ]);
+    expect(suggestionReadingOrder(group)).toEqual(["src", "alt1", "alt2", "alt3", "alt4", "alt5"]);
+    expect(suggestionReadingOrder(undefined)).toEqual([]);
+  });
+});
+
+describe("focusCandidates", () => {
+  it("prefers the next card, then the previous ones nearest first", () => {
+    expect(focusCandidates(["a", "b", "c", "d"], "b")).toEqual(["c", "d", "a"]);
+    expect(focusCandidates(["a", "b"], "b")).toEqual(["a"]);
+    expect(focusCandidates(["a"], "a")).toEqual([]);
+    expect(focusCandidates(["a", "b"], "zz")).toEqual(["a", "b"]);
+  });
+});
+
+describe("mergeRunIntoList and withoutSuggestion", () => {
+  const old = makeKpiSuggestion({ id: "old", createdAt: "2026-10-12T08:00:00.000Z" });
+  const oldAlternative = makeKpiSuggestion({ id: "old-alt", alternativeOfIndicatorId: "ind-1", createdAt: "2026-10-12T08:00:00.000Z" });
+  const otherResult = makeKpiSuggestion({ id: "o2-old", resultId: "o2", createdAt: "2026-10-12T08:00:00.000Z" });
+
+  it("adds the run's pending suggestions and replaces older cards of the results it refreshed", () => {
+    const run = makeKpiRun({ id: "run-2", createdAt: "2026-10-13T08:00:00.000Z" });
+    const fresh = makeKpiSuggestion({ id: "new", runId: "run-2" });
+    const rejectedInRun = makeKpiSuggestion({ id: "gone", runId: "run-2", status: "rejected" });
+    const list = makeKpiSuggestionList({ suggestions: [old, oldAlternative, otherResult], activeRuns: [makeKpiRun({ id: "run-2", status: "running" })] });
+    const merged = mergeRunIntoList(list, run, [fresh, rejectedInRun]);
+    expect(merged?.suggestions.map((s) => s.id).sort()).toEqual(["new", "o2-old", "old-alt"]);
+    expect(merged?.activeRuns).toEqual([]);
+    expect(merged?.latestFrameworkRun).toBeNull();
+  });
+
+  it("never replaces cards after an alternatives run, and records a framework run as the latest", () => {
+    const list = makeKpiSuggestionList({ suggestions: [old] });
+    const alternatives = mergeRunIntoList(list, makeKpiRun({ id: "r-alt", scope: "alternatives" }), [makeKpiSuggestion({ id: "alt", alternativeOfSuggestionId: "old" })]);
+    expect(alternatives?.suggestions.map((s) => s.id)).toEqual(["old", "alt"]);
+    const frameworkRun = makeKpiRun({ id: "r-fw", scope: "framework", resultId: null });
+    expect(mergeRunIntoList(list, frameworkRun, [])?.latestFrameworkRun).toBe(frameworkRun);
+  });
+
+  it("leaves a missing list or another framework version unchanged", () => {
+    expect(mergeRunIntoList(undefined, makeKpiRun(), [])).toBeUndefined();
+    const list = makeKpiSuggestionList({ frameworkId: "fw-old", suggestions: [old] });
+    expect(mergeRunIntoList(list, makeKpiRun(), [makeKpiSuggestion({ id: "new" })])).toBe(list);
+  });
+
+  it("removes one decided suggestion", () => {
+    const list = makeKpiSuggestionList({ suggestions: [old, otherResult] });
+    expect(withoutSuggestion(list, "old")?.suggestions.map((s) => s.id)).toEqual(["o2-old"]);
+    expect(withoutSuggestion(undefined, "old")).toBeUndefined();
+  });
+});
+
+describe("runTargetKey and bodyForRun", () => {
+  it("files framework runs together and result or alternatives runs under their result", () => {
+    expect(runTargetKey(makeKpiRun({ scope: "framework", resultId: null }))).toBe("framework");
+    expect(runTargetKey(makeKpiRun({ scope: "result", resultId: "o1" }))).toBe("result:o1");
+    expect(runTargetKey(makeKpiRun({ scope: "alternatives", resultId: "o1", sourceIndicatorId: "ind-1" }))).toBe("result:o1");
+    expect(runTargetKey(makeKpiRun({ scope: "alternatives", resultId: null, sourceIndicatorId: "ind-1" }))).toBe("indicator:ind-1");
+  });
+
+  it("rebuilds the request of a run", () => {
+    expect(bodyForRun(makeKpiRun({ scope: "framework" }))).toEqual({ scope: "framework" });
+    expect(bodyForRun(makeKpiRun({ scope: "result", resultId: "o1" }))).toEqual({ scope: "result", resultId: "o1" });
+    expect(bodyForRun(makeKpiRun({ scope: "alternatives", sourceSuggestionId: "s-1" }))).toEqual({ scope: "alternatives", suggestionId: "s-1" });
+    expect(bodyForRun(makeKpiRun({ scope: "alternatives", sourceIndicatorId: "ind-1" }))).toEqual({ scope: "alternatives", indicatorId: "ind-1" });
+    expect(bodyForRun(makeKpiRun({ scope: "result", resultId: null }))).toBeNull();
+  });
+});
+
+describe("rejectEffect", () => {
+  it("mirrors the backend REJECTION_SCOPE for library indicators (design D9)", () => {
+    expect(REJECTION_SCOPE).toEqual({
+      not_relevant: "organisation", too_costly_to_measure: "organisation", other: "organisation",
+      donor_not_required: "donor", duplicate: "project", wording: "project",
+    });
+    expect(KPI_REJECT_REASONS.map((reason) => rejectEffect(reason, true))).toEqual([
+      "organisation", "organisation", "donor", "project", "project", "organisation",
+    ]);
+  });
+
+  it("excludes nothing for a custom indicator", () => {
+    expect(KPI_REJECT_REASONS.map((reason) => rejectEffect(reason, false))).toEqual(Array(6).fill("custom"));
+  });
+
+  it("adds the Edit & accept hint for wording", () => {
+    expect(rejectEffectKeys("wording", true)).toEqual(["kpi.reject.effect.project", "kpi.reject.effect.wordingHint"]);
+    expect(rejectEffectKeys("wording", false)).toEqual(["kpi.reject.effect.custom", "kpi.reject.effect.wordingHint"]);
+    expect(rejectEffectKeys("not_relevant", true)).toEqual(["kpi.reject.effect.organisation"]);
+    expect(rejectEffectKeys("donor_not_required", true)).toEqual(["kpi.reject.effect.donor"]);
+  });
+});
+
+describe("warningText", () => {
+  it("translates by code with params and the translated level", () => {
+    const capped = makeKpiWarning("result_cap", { params: { code: "O1", cap: 3, dropped: 1 } });
+    expect(warningText(en, capped)).toBe("O1: kept 3 indicators per result (donor or level limit); 1 more dropped.");
+    const level = makeKpiWarning("level_adjusted", { params: { level: "outcome", code: "O1" } });
+    expect(warningText(en, level)).toBe("Level changed to Outcome to match result O1.");
+    expect(warningText(ar, level)).toBe("غُيّر المستوى إلى المحصّلة ليطابق النتيجة O1.");
+  });
+
+  it("falls back to the English message for a code the UI does not know", () => {
+    const future = { ...makeKpiWarning("sex_added"), code: "future_code" as never, message: "A new note." };
+    expect(warningText(en, future)).toBe("A new note.");
+  });
+});
+
+describe("requestErrorCode and runErrorCode", () => {
+  it("uses the API code the UI knows", () => {
+    for (const code of ["budget_reached", "nothing_to_suggest", "too_many_results", "project_archived", "duplicate", "run_in_progress", "not_suggestable"]) {
+      expect(requestErrorCode(new ApiError("x", 409, code))).toBe(code);
+    }
+  });
+
+  it("falls back by status: 429 rate_limited, 503 ai_not_configured, else internal", () => {
+    expect(requestErrorCode(new ApiError("Too many requests", 429))).toBe("rate_limited");
+    expect(requestErrorCode(new ApiError("Service unavailable", 503))).toBe("ai_not_configured");
+    expect(requestErrorCode(new ApiError("Bad request", 400))).toBe("internal");
+    expect(requestErrorCode(new ApiError("Odd", 400, "some_new_code"))).toBe("internal");
+    expect(requestErrorCode(new Error("offline"))).toBe("internal");
+    expect(requestErrorCode(null)).toBe("internal");
+  });
+
+  it("reads a failed run's errorCode", () => {
+    expect(runErrorCode(makeKpiRun({ status: "failed", errorCode: "ai_refused" }))).toBe("ai_refused");
+    expect(runErrorCode(makeKpiRun({ status: "failed", errorCode: null }))).toBe("internal");
+    expect(runErrorCode(makeKpiRun({ status: "completed" }))).toBeNull();
+  });
+
+  it("offers Retry only where it can help", () => {
+    expect(isRetryableError("ai_unavailable")).toBe(true);
+    expect(isRetryableError("rate_limited")).toBe(true);
+    expect(isRetryableError("internal")).toBe(true);
+    for (const code of ["ai_not_configured", "nothing_to_suggest", "not_suggestable", "budget_reached", "project_archived", "too_many_results"]) {
+      expect(isRetryableError(code)).toBe(false);
+    }
+  });
+});
+
+describe("acceptedToastText", () => {
+  it("names the result, and the donor cap when the response warns about it (D5)", () => {
+    expect(acceptedToastText(en, { warnings: [] }, "O1")).toBe("Indicator added to O1");
+    const over = makeKpiWarning("donor_cap_exceeded", { params: { code: "O1", cap: 3, count: 4 } });
+    expect(acceptedToastText(en, { warnings: [over] }, "O1")).toBe("Indicator added to O1. O1 now has 4 indicators; the donor allows 3. Remove one.");
+    expect(acceptedToastText(ar, { warnings: [over] }, "O1")).toContain("والمانح يسمح بـ3");
+  });
+});

@@ -1,12 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { toast } from "sonner";
 import AIWizard from "@/pages/AIWizard";
 import { api } from "@/services/api";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { ApiError } from "@/lib/apiError";
 import { renderWithClient } from "@/test/utils";
-import type { Framework } from "@/types/api";
+import { makeAuthUser, makeKpiRun } from "@/test/fixtures";
+import type { Framework, UserRole } from "@/types/api";
 
 vi.mock("@/services/api", () => ({
   api: {
@@ -15,6 +18,8 @@ vi.mock("@/services/api", () => ({
     generateFramework: vi.fn(),
     checkGenerationStatus: vi.fn(),
     getFramework: vi.fn(),
+    requestKpiSuggestions: vi.fn(),
+    getKpiAssistantStatus: vi.fn(),
     getUser: vi.fn(() => null),
     getToken: vi.fn(() => null),
   },
@@ -104,3 +109,95 @@ describe("AIWizard framework generation", () => {
     expect(input).toHaveAttribute("aria-describedby", warning.parentElement?.id);
   });
 });
+
+describe("AIWizard alternatives (KPI Assistant, design 9.5)", () => {
+  const framework = {
+    id: "fw-2",
+    indicators: [{ id: "i-1", indicatorText: "% of youth employed", level: "outcome", dataCollectionMethod: "hh_survey", targetValue: null }],
+  } as unknown as Framework;
+  const ALTERNATIVES = "Show alternatives to “% of youth employed”";
+
+  /** Renders the wizard for a user of `role` and runs generation until the review step. */
+  async function toReview(role: UserRole = "me_officer") {
+    vi.mocked(api.getUser).mockReturnValue(makeAuthUser({ role }));
+    vi.mocked(api.checkGenerationStatus).mockResolvedValue({ frameworkId: "fw-2", status: "completed", framework });
+    const user = userEvent.setup({ delay: null, advanceTimers: vi.advanceTimersByTime });
+    renderWithClient(
+      <AuthProvider>
+        <MemoryRouter initialEntries={["/projects/p-1/wizard"]}>
+          <Routes>
+            <Route path="/projects/:id/wizard" element={<AIWizard />} />
+            <Route path="/projects/:id" element={<p>Project page</p>} />
+          </Routes>
+        </MemoryRouter>
+      </AuthProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: /Upload & Process/ }));
+    await vi.advanceTimersByTimeAsync(3_000);
+    await screen.findByText("% of youth employed");
+    return user;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("asks the KPI Assistant for alternatives and links to the framework tab", async () => {
+    const run = makeKpiRun({ id: "run-alt", scope: "alternatives", resultId: "o1", sourceIndicatorId: "i-1", status: "running", step: "model", finishedAt: null });
+    vi.mocked(api.requestKpiSuggestions).mockResolvedValue({ run, httpStatus: 202 });
+    const user = await toReview();
+    await user.click(screen.getByRole("button", { name: ALTERNATIVES }));
+    await waitFor(() => expect(api.requestKpiSuggestions).toHaveBeenCalledWith("p-1", { scope: "alternatives", indicatorId: "i-1" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
+    const [message, options] = vi.mocked(toast.success).mock.calls[0] as unknown as [string, { action: { label: string; onClick: () => void } }];
+    expect(message).toBe("Alternatives are being prepared. Review them on the framework page.");
+    expect(options.action.label).toBe("Open the framework");
+    // No "check back shortly" stub any more.
+    expect(toast.success).not.toHaveBeenCalledWith(expect.stringMatching(/check back/));
+    options.action.onClick();
+    expect(await screen.findByText("Project page")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["503 not configured", new ApiError("AI is not configured", 503, "ai_not_configured"),
+      "AI suggestions are not set up yet. Ask your administrator to add the Anthropic API key."],
+    ["503 without a code", new ApiError("Service unavailable", 503),
+      "AI suggestions are not set up yet. Ask your administrator to add the Anthropic API key."],
+    ["422 not linked to a result", new ApiError("Link the indicator to a result first.", 422, "not_suggestable"),
+      "Raqib suggests indicators for goals, outcomes and outputs only. Link the indicator to one of them first."],
+    ["422 nothing to suggest", new ApiError("Nothing to suggest", 422, "nothing_to_suggest"),
+      "Every result already has as many indicators as allowed, so there is nothing to suggest."],
+    ["409 stale", new ApiError("Stale", 409, "stale"), "The framework changed while suggestions were prepared. Try again."],
+    ["409 run in progress", new ApiError("Running", 409, "run_in_progress", { runId: "run-1" }), "Suggestions are already being prepared here."],
+    ["429 rate limit", new ApiError("Too many requests", 429), "You have asked for many suggestions this hour. Try again later."],
+    ["429 budget", new ApiError("Budget", 429, "budget_reached"),
+      "Your organisation has reached today's AI budget. Try again tomorrow or ask your administrator."],
+  ])("shows a translated error for %s", async (_case, error, message) => {
+    vi.mocked(api.requestKpiSuggestions).mockRejectedValue(error);
+    const user = await toReview();
+    await user.click(screen.getByRole("button", { name: ALTERNATIVES }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(message));
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("reports a run that failed within the wait (200 with a failed run)", async () => {
+    vi.mocked(api.requestKpiSuggestions).mockResolvedValue({
+      run: makeKpiRun({ scope: "alternatives", sourceIndicatorId: "i-1", status: "failed", errorCode: "ai_refused" }),
+      suggestions: [],
+      httpStatus: 200,
+    });
+    const user = await toReview();
+    await user.click(screen.getByRole("button", { name: ALTERNATIVES }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("The AI declined this request. Try again, or add indicators from the library."));
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("does not offer alternatives to donor viewers", async () => {
+    await toReview("donor_viewer");
+    expect(screen.queryByRole("button", { name: ALTERNATIVES })).not.toBeInTheDocument();
+  });
+});
+

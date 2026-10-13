@@ -327,6 +327,7 @@ class ApiClient {
     return this.request<KpiSuggestionList>(`/projects/${projectId}/kpi-suggestions${query ? `?${query}` : ''}`);
   }
 
+  /** A run and all its suggestions (any status), polled while it runs (design 7.4). */
   async getKpiSuggestionRun(runId: string) {
     return this.request<KpiSuggestionRunResponse>(`/kpi-suggestion-runs/${runId}`);
   }
@@ -339,6 +340,7 @@ class ApiClient {
     });
   }
 
+  /** Rejects a suggestion with a reason (design 8.2); the note is stored redacted and never sent to a model. */
   async rejectKpiSuggestion(id: string, body: RejectKpiSuggestionBody) {
     return this.request<{ suggestion: KpiSuggestion }>(`/kpi-suggestions/${id}/reject`, { method: 'POST', body: JSON.stringify(body) });
   }

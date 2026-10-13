@@ -11,7 +11,13 @@ import {
   FREQUENCIES,
   INDICATOR_LEVELS,
   INDICATOR_STATUSES,
+  KPI_CONFIDENCE_LEVELS,
+  KPI_ERROR_CODES_SHOWN,
+  KPI_REJECT_REASONS,
+  KPI_RUN_STEPS_SHOWN,
+  KPI_WARNING_CODES,
   PARSING_STATUSES,
+  QUALITY_BANDS,
   PROVENANCES,
   SECTORS,
 } from "@/lib/constants";
@@ -42,6 +48,12 @@ describe("translations", () => {
       ["disaggregation", DISAGGREGATION_SUGGESTIONS],
       ["documentType", DOCUMENT_FILE_TYPES],
       ["parsingStatus", PARSING_STATUSES],
+      ["kpi.reject.reasons", KPI_REJECT_REASONS],
+      ["kpi.quality", QUALITY_BANDS],
+      ["kpi.progress.steps", KPI_RUN_STEPS_SHOWN],
+      ["kpi.warnings", KPI_WARNING_CODES],
+      ["kpi.errors", KPI_ERROR_CODES_SHOWN],
+      ["kpi.confidence", KPI_CONFIDENCE_LEVELS],
     ];
     for (const [group, values] of groups) {
       for (const value of values) {
@@ -65,6 +77,34 @@ describe("translations", () => {
     expect(t("results.indicatorCount", { count: 2 })).toBe("مؤشران");
     expect(t("results.indicatorCount", { count: 5 })).toBe("5 مؤشرات");
     expect(i18n.getFixedT("en")("results.indicatorCount", { count: 1 })).toBe("1 indicator");
+  });
+
+  it("uses Arabic plural forms for the KPI announcement", () => {
+    const t = i18n.getFixedT("ar");
+    expect(t("kpi.ready", { count: 0, code: "O1" })).toBe("لا توجد اقتراحات جاهزة للنتيجة O1");
+    expect(t("kpi.ready", { count: 1, code: "O1" })).toBe("اقتراح واحد جاهز للنتيجة O1");
+    expect(t("kpi.ready", { count: 2, code: "O1" })).toBe("اقتراحان جاهزان للنتيجة O1");
+    expect(t("kpi.ready", { count: 3, code: "O1" })).toBe("3 اقتراحات جاهزة للنتيجة O1");
+    expect(t("kpi.ready", { count: 11, code: "O1" })).toBe("11 اقتراحًا جاهزًا للنتيجة O1");
+    expect(t("kpi.ready", { count: 100, code: "O1" })).toBe("100 اقتراح جاهز للنتيجة O1");
+    expect(i18n.getFixedT("en")("kpi.ready", { count: 1, code: "O1" })).toBe("1 suggestion ready for O1");
+    expect(i18n.getFixedT("en")("kpi.ready", { count: 3, code: "O1" })).toBe("3 suggestions ready for O1");
+  });
+
+  it("keeps the KPI warning texts the backend sends as the English fallback (design 9.6)", () => {
+    // The backend message of each warning equals these English texts (raqib-backend validate.ts WARNING_TEXTS).
+    expect(en.kpi.warnings.result_cap).toBe("{{code}}: kept {{cap}} indicators per result (donor or level limit); {{dropped}} more dropped.");
+    expect(en.kpi.warnings.model_note).toBe("AI note: {{message}}");
+    expect(Object.keys(en.kpi.warnings)).toHaveLength(KPI_WARNING_CODES.length);
+  });
+
+  it("puts the visible action label inside each named action (WCAG 2.5.3 label in name)", () => {
+    for (const lng of ["en", "ar"] as const) {
+      const t = i18n.getFixedT(lng);
+      for (const action of ["accept", "editAccept", "reject", "alternatives"]) {
+        expect(t(`kpi.actions.${action}Named`, { name: "X" }), `${lng} ${action}`).toContain(t(`kpi.actions.${action}`));
+      }
+    }
   });
 
   it("maps preferences to a language and direction", () => {

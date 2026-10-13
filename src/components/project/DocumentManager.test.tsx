@@ -82,7 +82,10 @@ describe("DocumentManager", () => {
     expect(status.querySelector("svg")).not.toBeNull();
     expect(screen.getByText("Uploaded 12 Oct 2026")).toBeInTheDocument();
 
-    expect(screen.getByRole("note")).toHaveTextContent(AI_LABEL);
+    // The shared AiSuggestedLabel: text plus a decorative icon, never colour alone (CLAUDE.md rules 4 and 5).
+    const label = screen.getByRole("note");
+    expect(label).toHaveTextContent(AI_LABEL);
+    expect(label.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(screen.getByText("Three-year livelihoods project for youth in Hebron.")).toBeInTheDocument();
     // The card shows the first three findings; the dialog shows all of them.
     expect(screen.getByText("Finding three")).toBeInTheDocument();
