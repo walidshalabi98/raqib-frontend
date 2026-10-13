@@ -76,7 +76,7 @@ const PARSING_STATUS_STYLE: Record<ParsingStatus, { icon: LucideIcon; badge: str
   failed: { icon: AlertCircle, badge: "border-destructive/30 bg-destructive/10", iconClass: "text-destructive" },
 };
 
-export default function DocumentManager({ projectId }: { projectId: string }) {
+export default function DocumentManager({ projectId, canManage = true }: { projectId: string; canManage?: boolean }) {
   const lang = useUserLanguage();
   const dir = dirFor(lang);
   const { t } = useTranslation(undefined, { lng: lang });
@@ -86,7 +86,8 @@ export default function DocumentManager({ projectId }: { projectId: string }) {
     queryKey: queryKeys.documents(projectId),
     queryFn: () => api.getDocuments(projectId),
     // The real time, not when the list was last fetched: during an outage that would never move on.
-    refetchInterval: (query) => (documentsNeedRefresh(query.state.data ?? [], Date.now()) ? REFRESH_MS : false),
+    // Read-only viewers (donors) never receive the AI analysis, so there is nothing to wait for.
+    refetchInterval: (query) => (documentsNeedRefresh(query.state.data ?? [], Date.now(), !canManage) ? REFRESH_MS : false),
   });
   const documents = data ?? [];
 
@@ -94,19 +95,26 @@ export default function DocumentManager({ projectId }: { projectId: string }) {
   const [clock, setClock] = useState(() => Date.now());
   const now = Math.max(clock, dataUpdatedAt);
   useEffect(() => {
-    const deadline = nextWaitDeadline(data ?? [], now);
+    const deadline = nextWaitDeadline(data ?? [], now, !canManage);
     if (deadline === null) return;
     const timer = setTimeout(() => setClock(Date.now()), Math.max(0, deadline - Date.now()) + 1);
     return () => clearTimeout(timer);
-  }, [data, now]);
+  }, [data, now, canManage]);
 
   return (
     <section aria-labelledby={headingId} dir={dir} lang={lang} className="space-y-4">
       <DirectionProvider dir={dir}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 id={headingId} className="text-lg font-semibold">{t("documents.title")}</h3>
-          <UploadDocumentDialog projectId={projectId} lang={lang} />
+          {canManage && <UploadDocumentDialog projectId={projectId} lang={lang} />}
         </div>
+
+        {!canManage && (
+          <p role="note" className="flex items-start gap-1.5 text-sm">
+            <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <span>{t("access.documents.donorNote")}</span>
+          </p>
+        )}
 
         {isLoading ? (
           <div role="status" className="space-y-3">
@@ -124,14 +132,14 @@ export default function DocumentManager({ projectId }: { projectId: string }) {
           <Card>
             <CardContent className="py-8 text-center text-muted-foreground">
               <FileText aria-hidden="true" className="mx-auto mb-3 h-12 w-12 opacity-30" />
-              <p>{t("documents.empty")}</p>
+              <p>{t(canManage ? "documents.empty" : "access.documents.emptyReadOnly")}</p>
             </CardContent>
           </Card>
         ) : (
           <ul className="space-y-3">
             {documents.map((doc) => (
               <li key={doc.id}>
-                <DocumentRow doc={doc} lang={lang} now={now} refreshing={isFetching} onRefresh={() => void refetch()} />
+                <DocumentRow doc={doc} lang={lang} now={now} analysisWithheld={!canManage} refreshing={isFetching} onRefresh={() => void refetch()} />
               </li>
             ))}
           </ul>
@@ -241,24 +249,28 @@ const ROW_STATE_STATUS: Record<DocumentRowState, string> = {
   analysing: "documents.analysisPending",
   noAnalysis: "documents.noAnalysis",
   analysed: "documents.analysisReady",
+  read: "parsingStatus.completed",
 };
 
 function DocumentRow({
   doc,
   lang,
   now,
+  analysisWithheld,
   refreshing,
   onRefresh,
 }: {
   doc: ProjectDocument;
   lang: AppLanguage;
   now: number;
+  /** Donor viewers: no AI analysis states (the API sends no analysis to them). */
+  analysisWithheld: boolean;
   refreshing: boolean;
   onRefresh: () => void;
 }) {
   const { t } = useTranslation(undefined, { lng: lang });
   const stalledId = useId();
-  const state = documentRowState(doc, now);
+  const state = documentRowState(doc, now, analysisWithheld);
   const analysis = state === "analysed" ? documentAnalysisOf(doc) : null;
   const Icon = FILE_TYPE_ICONS[doc.fileType] ?? FileIcon;
   const uploaded = formatDisplayDate(doc.uploadedAt, lang);

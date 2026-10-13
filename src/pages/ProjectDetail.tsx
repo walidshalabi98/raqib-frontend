@@ -1,6 +1,10 @@
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { api } from "@/services/api";
+import { dirFor } from "@/i18n";
+import { useUserLanguage } from "@/i18n/useUserLanguage";
+import { usePermissions } from "@/hooks/usePermissions";
 import { SECTOR_LABELS } from "@/lib/constants";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -15,8 +19,8 @@ import { QualitativeCards } from "@/components/project/QualitativeCards";
 import DocumentManager from "@/components/project/DocumentManager";
 import RiskAlerts from "@/components/project/RiskAlerts";
 import ExportPanel from "@/components/project/ExportPanel";
-import { ArrowLeft, Download, ClipboardCheck, BarChart3, Upload, Loader2, MapPin } from "lucide-react";
-import { lazy, Suspense, Component, type ReactNode } from "react";
+import { ArrowLeft, Download, ClipboardCheck, BarChart3, Upload, Loader2, MapPin, Eye } from "lucide-react";
+import { lazy, Suspense, Component, useId, type ReactNode } from "react";
 
 const PalestineMap = lazy(() => import("@/components/project/PalestineMap"));
 
@@ -48,6 +52,11 @@ function getStageIndex(status: string): number {
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
+  // The page decides what each role sees and passes it down; the server enforces every rule.
+  const { can, readOnly } = usePermissions();
+  const lang = useUserLanguage();
+  const { t } = useTranslation(undefined, { lng: lang });
+  const timelineHeadingId = useId();
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
@@ -86,14 +95,21 @@ export default function ProjectDetail() {
   return (
     <div className="space-y-5 animate-fade-in">
       <div className="flex items-center gap-3">
-        <Link to="/projects" className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
-          <ArrowLeft className="h-4 w-4" />
+        <Link to="/projects" aria-label={t("projectDetail.backToProjects")} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
+          <ArrowLeft aria-hidden="true" className="h-4 w-4" />
         </Link>
         <div>
           <h1 className="text-xl font-semibold tracking-tight">{project.name}</h1>
           <p className="text-sm text-muted-foreground">{project.donor} · {SECTOR_LABELS[project.sector] || project.sector}</p>
         </div>
       </div>
+
+      {readOnly && (
+        <p role="note" lang={lang} dir={dirFor(lang)} className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2 text-start text-sm">
+          <Eye aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{t("access.readOnlyBanner")}</span>
+        </p>
+      )}
 
       <Tabs defaultValue="overview" className="w-full">
         <TabsList className="w-full justify-start overflow-x-auto bg-transparent border-b rounded-none h-auto p-0 gap-0">
@@ -131,8 +147,9 @@ export default function ProjectDetail() {
 
           {/* Timeline */}
           <div className="card-surface p-5">
-            <h3 className="text-sm font-semibold mb-4">Project Timeline</h3>
-            <div className="flex items-center overflow-x-auto pb-2">
+            <h3 id={timelineHeadingId} className="text-sm font-semibold mb-4">Project Timeline</h3>
+            {/* Scrolls sideways on phones: focusable so keyboard users can scroll it too. */}
+            <div role="region" aria-labelledby={timelineHeadingId} tabIndex={0} className="flex items-center overflow-x-auto pb-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               {timelineStages.map((stage, i) => (
                 <div key={stage} className="flex items-center">
                   <div className="flex flex-col items-center">
@@ -168,13 +185,13 @@ export default function ProjectDetail() {
           <div className="flex gap-3 flex-wrap">
             <Button variant="outline" size="sm"><BarChart3 className="h-4 w-4 mr-1.5" /> View Dashboard</Button>
             <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1.5" /> Download Report</Button>
-            <Button variant="outline" size="sm"><ClipboardCheck className="h-4 w-4 mr-1.5" /> Order Assessment</Button>
+            {can("assessment.request") && <Button variant="outline" size="sm"><ClipboardCheck className="h-4 w-4 mr-1.5" /> Order Assessment</Button>}
           </div>
         </TabsContent>
 
         {/* M&E Framework */}
         <TabsContent value="me-framework" className="space-y-4 mt-5">
-          {isSetup && (
+          {isSetup && can("ai.run") && (
             <div className="card-surface p-6 text-center">
               <Upload className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <h3 className="text-lg font-semibold mb-2">Generate M&E Framework</h3>
@@ -196,33 +213,33 @@ export default function ProjectDetail() {
 
         {/* Risk Alerts */}
         <TabsContent value="risks" className="mt-5">
-          <RiskAlerts projectId={id!} />
+          <RiskAlerts projectId={id!} readOnly={!can("ai.run")} />
         </TabsContent>
 
         {/* Assessments */}
         <TabsContent value="assessments" className="space-y-4 mt-5">
-          <div className="flex justify-end"><AssessmentModal /></div>
-          <AssessmentPipeline projectId={id!} />
+          {can("assessment.request") && <div className="flex justify-end"><AssessmentModal /></div>}
+          <AssessmentPipeline projectId={id!} readOnly={!can("ai.review")} />
         </TabsContent>
 
         {/* Reports */}
         <TabsContent value="reports" className="mt-5">
-          <ReportsList projectId={id!} />
+          <ReportsList projectId={id!} canGenerate={can("report.generate")} />
         </TabsContent>
 
         {/* Documents */}
         <TabsContent value="documents" className="mt-5">
-          <DocumentManager projectId={id!} />
+          <DocumentManager projectId={id!} canManage={can("document.manage")} />
         </TabsContent>
 
         {/* Qualitative */}
         <TabsContent value="qualitative" className="mt-5">
-          <QualitativeCards projectId={id!} />
+          <QualitativeCards projectId={id!} readOnly={!can("qualitative.manage")} />
         </TabsContent>
 
         {/* Export */}
         <TabsContent value="export" className="mt-5">
-          <ExportPanel projectId={id!} />
+          <ExportPanel projectId={id!} audience={can("export.personalData") ? "staff" : "donor"} />
         </TabsContent>
       </Tabs>
     </div>

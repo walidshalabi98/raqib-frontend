@@ -2,9 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "@/services/api";
 import { AssessmentModal } from "@/components/project/AssessmentModal";
+import { usePermissions } from "@/hooks/usePermissions";
 import { Loader2, ClipboardCheck } from "lucide-react";
 
 export default function Assessments() {
+  // Requesting an assessment is for org staff; donor viewers only see the list (the server refuses them too).
+  const canRequest = usePermissions().can("assessment.request");
   const { data: projects, isLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: () => api.getProjects(),
@@ -38,7 +41,7 @@ export default function Assessments() {
       ) : (
         <div className="space-y-4">
           {projectList.map((project: any) => (
-            <ProjectAssessments key={project.id} project={project} />
+            <ProjectAssessments key={project.id} project={project} canRequest={canRequest} />
           ))}
         </div>
       )}
@@ -46,7 +49,7 @@ export default function Assessments() {
   );
 }
 
-function ProjectAssessments({ project }: { project: any }) {
+function ProjectAssessments({ project, canRequest }: { project: any; canRequest: boolean }) {
   const { data: assessments, isLoading } = useQuery({
     queryKey: ['assessments', project.id],
     queryFn: () => api.getAssessments(project.id),
@@ -60,7 +63,7 @@ function ProjectAssessments({ project }: { project: any }) {
         <Link to={`/projects/${project.id}`} className="text-sm font-semibold hover:text-primary transition-colors">
           {project.name}
         </Link>
-        <AssessmentModal />
+        {canRequest && <AssessmentModal projectId={project.id} />}
       </div>
       {isLoading ? (
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -73,13 +76,14 @@ function ProjectAssessments({ project }: { project: any }) {
               <div>
                 <span className="font-medium capitalize">{a.type?.replace(/_/g, ' ')}</span>
                 <span className="text-muted-foreground ml-2">
-                  {new Date(a.createdAt).toLocaleDateString()}
+                  {new Date(a.requestedAt).toLocaleDateString()}
                 </span>
               </div>
-              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                a.status === 'completed' ? 'bg-success/10 text-success' :
-                a.status === 'in_progress' ? 'bg-primary/10 text-primary' :
-                'bg-warning/10 text-warning'
+              {/* Foreground text on a tinted pill (coloured text on its own tint is below 4.5:1); the status is the text. */}
+              <span className={`px-2 py-0.5 rounded-full text-xs font-medium text-foreground ${
+                a.status === 'delivered' ? 'bg-success/10' :
+                a.status === 'requested' ? 'bg-warning/10' :
+                'bg-primary/10'
               }`}>
                 {a.status?.replace(/_/g, ' ')}
               </span>

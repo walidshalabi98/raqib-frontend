@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { api } from "@/services/api";
-import { Download, FileText, Plus, Loader2 } from "lucide-react";
+import { dirFor } from "@/i18n";
+import { formatDisplayDate } from "@/lib/dates";
+import { useUserLanguage } from "@/i18n/useUserLanguage";
+import { isForbidden } from "@/lib/apiError";
+import { AlertCircle, Download, FileText, Plus, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,16 +15,23 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/utils";
 
+// Tinted backgrounds with foreground text: coloured text on its own tint is below WCAG AA (4.5:1).
 const typeBadge: Record<string, string> = {
-  assessment_report: "bg-info/10 text-info",
-  monthly_progress: "bg-success/10 text-success",
-  quarterly_summary: "bg-warning/10 text-warning",
-  annual_review: "bg-primary/10 text-primary",
+  assessment_report: "bg-info/10 text-foreground",
+  monthly_progress: "bg-success/10 text-foreground",
+  quarterly_summary: "bg-warning/10 text-foreground",
+  annual_review: "bg-primary/10 text-foreground",
   donor_export: "bg-secondary text-secondary-foreground",
 };
 
-export function ReportsList({ projectId }: { projectId: string }) {
+/**
+ * `canGenerate` (default true) shows the Generate Report dialog; roles that cannot generate reports only read
+ * them (donor viewers receive published reports only).
+ */
+export function ReportsList({ projectId, canGenerate = true }: { projectId: string; canGenerate?: boolean }) {
   const queryClient = useQueryClient();
+  const lang = useUserLanguage();
+  const { t } = useTranslation(undefined, { lng: lang });
   const [open, setOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [reportType, setReportType] = useState("quarterly_summary");
@@ -27,7 +39,7 @@ export function ReportsList({ projectId }: { projectId: string }) {
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
 
-  const { data: reports = [], isLoading } = useQuery({
+  const { data: reports = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['reports', projectId],
     queryFn: () => api.getReports(projectId),
   });
@@ -51,10 +63,31 @@ export function ReportsList({ projectId }: { projectId: string }) {
     }
   };
 
-  if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="h-5 w-5 animate-spin" /></div>;
+  if (isLoading) {
+    return (
+      <div role="status" className="flex justify-center p-8">
+        <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" />
+        <span lang={lang} className="sr-only">{t("common.loading")}</span>
+      </div>
+    );
+  }
+
+  // A failed request is never shown as "no reports yet".
+  if (isError) {
+    return (
+      <div role="alert" lang={lang} dir={dirFor(lang)} className="flex flex-wrap items-center gap-3 rounded-md border p-4 text-sm">
+        <AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-destructive" />
+        <span className="min-w-0 flex-1">{t(isForbidden(error) ? "errors.forbidden" : "access.reports.loadError")}</span>
+        <Button size="sm" variant="outline" className="min-h-11" onClick={() => void refetch()}>
+          {t("common.retry")}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
+      {canGenerate && (
       <div className="flex justify-end">
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
@@ -107,24 +140,27 @@ export function ReportsList({ projectId }: { projectId: string }) {
           </DialogContent>
         </Dialog>
       </div>
+      )}
       {reports.length === 0 ? (
-        <div className="card-surface p-8 text-center text-muted-foreground">No reports generated yet.</div>
+        <div lang={lang} dir={dirFor(lang)} className="card-surface p-8 text-center text-muted-foreground">{t(canGenerate ? "access.reports.empty" : "access.reports.emptyReadOnly")}</div>
       ) : (
         <div className="card-surface divide-y">
           {reports.map((r: any) => (
-            <div key={r.id} className="flex items-center justify-between px-5 py-4 hover:bg-secondary/30 transition-colors">
+            // The row's labels are in the UI language; the title is as written.
+            <div key={r.id} lang={lang} dir={dirFor(lang)} className="flex items-center justify-between px-5 py-4 hover:bg-secondary/30 transition-colors">
               <div className="flex items-center gap-3">
-                <FileText className="h-5 w-5 text-muted-foreground" />
+                <FileText aria-hidden="true" className="h-5 w-5 text-muted-foreground" />
                 <div>
-                  <p className="text-sm font-medium">{r.title}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${typeBadge[r.type] || "bg-secondary text-muted-foreground"}`}>
-                      {(r.type || '').replace("_", " ")}
+                  {/* The title as written (its own direction), in a block aligned with the UI language. */}
+                  <p className="text-sm font-medium"><span dir="auto">{r.title}</span></p>
+                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${typeBadge[r.type] || "bg-secondary text-secondary-foreground"}`}>
+                      {t(`reportType.${r.type}`, { defaultValue: String(r.type ?? "").replace(/_/g, " ") })}
                     </span>
-                    {r.donorFormat && <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground uppercase">{r.donorFormat}</span>}
+                    {r.donorFormat && <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground">{t(`donorType.${r.donorFormat}`, { defaultValue: r.donorFormat })}</span>}
                     {r.periodStart && r.periodEnd && (
                       <span className="text-xs text-muted-foreground">
-                        {new Date(r.periodStart).toLocaleDateString()} — {new Date(r.periodEnd).toLocaleDateString()}
+                        {formatDisplayDate(r.periodStart, lang)} – {formatDisplayDate(r.periodEnd, lang)}
                       </span>
                     )}
                   </div>

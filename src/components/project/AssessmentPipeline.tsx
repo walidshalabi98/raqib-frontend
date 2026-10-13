@@ -10,7 +10,7 @@ import { MethodPill } from "@/components/common/MethodPill";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { AlertCircle, Loader2, FileText, Brain, CheckCircle2 } from "lucide-react";
+import { AlertCircle, Loader2, FileText, Brain, CheckCircle2, Info } from "lucide-react";
 
 const stageLabels: Record<string, string> = {
   requested: "Requested", scoping: "Scoping", in_field: "In Field",
@@ -22,7 +22,11 @@ function getStageIndex(status: string): number {
   return map[status] ?? 0;
 }
 
-export function AssessmentPipeline({ projectId }: { projectId: string }) {
+/**
+ * The project's assessments. `readOnly` (donor viewers) hides the AI report, which nobody has reviewed yet
+ * (the API sends donors no report), and the prompt to request an assessment.
+ */
+export function AssessmentPipeline({ projectId, readOnly = false }: { projectId: string; readOnly?: boolean }) {
   const [viewingReport, setViewingReport] = useState<any>(null);
   const [loadingReport, setLoadingReport] = useState<string | null>(null);
   const lang = useUserLanguage();
@@ -54,7 +58,7 @@ export function AssessmentPipeline({ projectId }: { projectId: string }) {
       <div className="card-surface p-8 text-center text-muted-foreground">
         <Brain className="h-10 w-10 mx-auto mb-3 opacity-30" />
         <p>No assessments yet.</p>
-        <p className="text-sm mt-1">Request an assessment and AI will automatically generate a comprehensive report.</p>
+        {!readOnly && <p className="text-sm mt-1">Request an assessment and AI will automatically generate a comprehensive report.</p>}
       </div>
     );
   }
@@ -70,9 +74,10 @@ export function AssessmentPipeline({ projectId }: { projectId: string }) {
 
         return (
           <div key={a.id} className="card-surface p-5">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <div className="flex items-center gap-2">
+            {/* Wraps at 375 px: the note or button and the sample move under the title instead of squeezing it. */}
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-sm font-semibold capitalize">{(a.type || '').replace(/_/g, " ")}</h3>
                   {isProcessing && (
                     <Badge className="text-[10px] bg-blue-100 text-blue-700">
@@ -101,8 +106,14 @@ export function AssessmentPipeline({ projectId }: { projectId: string }) {
                   {methods.map((m: string) => <MethodPill key={m} method={m as Method} size="xs" />)}
                 </div>
               </div>
-              <div className="text-right">
-                {isDelivered && (
+              <div className="text-end">
+                {isDelivered && readOnly && (
+                  <p lang={lang} dir={dirFor(lang)} className="flex max-w-xs items-start gap-1.5 text-start text-xs text-muted-foreground">
+                    <Info aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{t("access.assessments.reportStaffOnly")}</span>
+                  </p>
+                )}
+                {isDelivered && !readOnly && (
                   <Button variant="outline" size="sm" onClick={() => viewReport(a.id)} disabled={loadingReport === a.id}>
                     {loadingReport === a.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <FileText className="h-3 w-3 mr-1" />}
                     View Report
@@ -114,7 +125,8 @@ export function AssessmentPipeline({ projectId }: { projectId: string }) {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-0 overflow-x-auto pb-1">
+            {/* Scrolls sideways on phones: a named, focusable region so keyboard users can scroll it. */}
+            <div role="region" aria-label={t("access.assessments.stages")} tabIndex={0} className="flex items-center gap-0 overflow-x-auto pb-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               {ASSESSMENT_STAGES.map((stage, i) => {
                 const isCompleted = i < activeIdx;
                 const isActive = i === activeIdx;

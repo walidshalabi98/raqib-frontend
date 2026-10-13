@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/services/api";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { Loader2 } from "lucide-react";
+import { trendPoints } from "@/lib/trends";
 
 const colors = ["hsl(var(--success))", "hsl(var(--info))", "hsl(var(--danger))", "hsl(var(--warning))", "hsl(var(--primary))"];
 
@@ -13,7 +14,8 @@ export function TrendChart({ projectId }: { projectId: string }) {
 
   if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="h-5 w-5 animate-spin" /></div>;
 
-  const trends = (dashboard?.trends || []).filter((t: any) => t.dataPoints?.length > 0).slice(0, 3);
+  // Donor viewers: survey rows arrive as monthly aggregates (src/lib/trends.ts).
+  const trends = (dashboard?.trends || []).map((t: any) => ({ ...t, dataPoints: trendPoints(t) })).filter((t: any) => t.dataPoints.length > 0).slice(0, 3);
 
   if (trends.length === 0) {
     return (

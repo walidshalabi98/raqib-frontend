@@ -1,5 +1,6 @@
 import type {
   AuthUser,
+  BeneficiaryStats,
   BulkDataPointInput,
   BulkDataPointResponse,
   DataPoint,
@@ -16,6 +17,7 @@ import type {
   Project,
   ProjectDetail,
   ProjectDocument,
+  ProjectExport,
   ProjectInput,
   ProjectUpdateInput,
   QualitativeEntryCreateResponse,
@@ -25,6 +27,8 @@ import type {
   ResultUpdateResponse,
 } from '@/types/api';
 import { ApiError } from '@/lib/apiError';
+import { emitAuthChange } from '@/lib/authEvents';
+import { sessionUser } from '@/lib/session';
 
 interface QualitativeUploadMetadata {
   entryType?: string;
@@ -40,9 +44,16 @@ const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').t
 class ApiClient {
   private token: string | null = null;
 
+  /**
+   * Stores a new access token (sign-in or refresh). The saved profile takes the token's role, so a
+   * role an admin changed reaches the UI with the next refresh, and the auth context is told.
+   */
   setToken(token: string) {
     this.token = token;
     localStorage.setItem('raqib_token', token);
+    const user = this.getUser();
+    if (user) localStorage.setItem('raqib_user', JSON.stringify(user));
+    emitAuthChange();
   }
 
   getToken(): string | null {
@@ -57,20 +68,28 @@ class ApiClient {
     localStorage.removeItem('raqib_token');
     localStorage.removeItem('raqib_refresh_token');
     localStorage.removeItem('raqib_user');
+    emitAuthChange();
   }
 
+  /**
+   * The signed-in user: the profile saved at sign-in, with the role from the current access token
+   * (src/lib/session.ts). The role is "" when the token carries none (deny by default).
+   */
   getUser(): AuthUser | null {
     const raw = localStorage.getItem('raqib_user');
     if (!raw) return null;
+    let profile: AuthUser | null;
     try {
-      return JSON.parse(raw) as AuthUser;
+      profile = JSON.parse(raw) as AuthUser;
     } catch {
       return null;
     }
+    return profile && typeof profile === 'object' ? sessionUser(profile, this.getToken()) : null;
   }
 
   setUser(user: object) {
     localStorage.setItem('raqib_user', JSON.stringify(user));
+    emitAuthChange();
   }
 
   /**
@@ -371,7 +390,7 @@ class ApiClient {
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || 'Upload failed');
+      throw new ApiError(error.message || 'Upload failed', response.status);
     }
     return response.json();
   }
@@ -428,8 +447,9 @@ class ApiClient {
   async addBeneficiaryService(beneficiaryId: string, data: object) {
     return this.request(`/beneficiaries/${beneficiaryId}/services`, { method: 'POST', body: JSON.stringify(data) });
   }
-  async getBeneficiaryStats(projectId: string) {
-    return this.request(`/projects/${projectId}/beneficiaries/stats`);
+  /** Org staff get exact counts; donor viewers get a summary with small counts hidden (`audience` tells them apart). */
+  async getBeneficiaryStats(projectId: string): Promise<BeneficiaryStats> {
+    return this.request<BeneficiaryStats>(`/projects/${projectId}/beneficiaries/stats`);
   }
 
   // Risk Analysis
@@ -441,11 +461,13 @@ class ApiClient {
   async exportIndicators(projectId: string) {
     return this.request(`/projects/${projectId}/export/indicators`);
   }
+  /** The beneficiary register (personal data): org staff only; donor viewers get 403. */
   async exportBeneficiaries(projectId: string) {
     return this.request(`/projects/${projectId}/export/beneficiaries`);
   }
-  async exportFullProject(projectId: string) {
-    return this.request(`/projects/${projectId}/export/full`);
+  /** The whole project as JSON. Donor viewers get results without personal data (`audience: "donor"`, no `beneficiaries`). */
+  async exportProject(projectId: string): Promise<ProjectExport> {
+    return this.request<ProjectExport>(`/projects/${projectId}/export`);
   }
 
   // Report detail

@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { api } from "@/services/api";
+import { dirFor } from "@/i18n";
+import { useUserLanguage } from "@/i18n/useUserLanguage";
+import { usePermissions } from "@/hooks/usePermissions";
+import { BeneficiarySummary } from "@/components/beneficiaries/BeneficiarySummary";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,9 +14,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Users, UserPlus, Search, Loader2 } from "lucide-react";
+import { Users, UserPlus, Search, Loader2, AlertCircle } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 import { errorMessage } from "@/lib/utils";
+import { isForbidden } from "@/lib/apiError";
 
 const GENDER_COLORS: Record<string, string> = { male: "#3b82f6", female: "#ec4899", other: "#8b5cf6" };
 const STATUS_COLORS: Record<string, string> = {
@@ -22,6 +28,12 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function Beneficiaries() {
+  const { can } = usePermissions();
+  // Only org staff see individual records (personal data). Everyone else gets the summary,
+  // and the register is never requested for them.
+  const staff = can("beneficiary.records");
+  const lang = useUserLanguage();
+  const { t } = useTranslation(undefined, { lng: lang });
   const [selectedProject, setSelectedProject] = useState("");
   const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
@@ -37,10 +49,10 @@ export default function Beneficiaries() {
     queryFn: () => api.getProjects(),
   });
 
-  const { data: benefData, isLoading } = useQuery({
+  const { data: benefData, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["beneficiaries", selectedProject],
     queryFn: () => api.getBeneficiaries(selectedProject),
-    enabled: !!selectedProject,
+    enabled: staff && !!selectedProject,
   });
 
   const beneficiaries = benefData?.beneficiaries || [];
@@ -82,11 +94,13 @@ export default function Beneficiaries() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Users className="h-6 w-6" /> Beneficiaries</h1>
+      {/* Wraps at 375 px: the register button moves under the title instead of running past the screen. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold flex items-center gap-2"><Users aria-hidden="true" className="h-6 w-6" /> Beneficiaries</h1>
+        {staff && (
         <Dialog open={addOpen} onOpenChange={setAddOpen}>
           <DialogTrigger asChild>
-            <Button disabled={!selectedProject}><UserPlus className="mr-2 h-4 w-4" /> Register Beneficiary</Button>
+            <Button disabled={!selectedProject}><UserPlus aria-hidden="true" className="me-2 h-4 w-4" /> Register Beneficiary</Button>
           </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle>Register New Beneficiary</DialogTitle></DialogHeader>
@@ -124,17 +138,18 @@ export default function Beneficiaries() {
             </div>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       {/* Project Selector */}
       <div className="flex gap-4 items-center">
         <Select value={selectedProject} onValueChange={setSelectedProject}>
-          <SelectTrigger className="w-64"><SelectValue placeholder="Select Project" /></SelectTrigger>
+          <SelectTrigger className="w-64" aria-label={t("beneficiarySummary.project")}><SelectValue placeholder="Select Project" /></SelectTrigger>
           <SelectContent>
             {projects.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
           </SelectContent>
         </Select>
-        {selectedProject && (
+        {staff && selectedProject && (
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input placeholder="Search beneficiaries..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
@@ -142,10 +157,28 @@ export default function Beneficiaries() {
         )}
       </div>
 
-      {!selectedProject ? (
+      {!staff ? (
+        selectedProject ? (
+          <BeneficiarySummary projectId={selectedProject} />
+        ) : (
+          <Card><CardContent lang={lang} dir={dirFor(lang)} className="py-12 text-center text-muted-foreground">{t("beneficiarySummary.selectProject")}</CardContent></Card>
+        )
+      ) : !selectedProject ? (
         <Card><CardContent className="py-12 text-center text-muted-foreground">Select a project to view beneficiaries</CardContent></Card>
       ) : isLoading ? (
-        <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin" /></div>
+        <div role="status" className="flex justify-center py-12">
+          <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin" />
+          <span lang={lang} className="sr-only">{t("common.loading")}</span>
+        </div>
+      ) : isError ? (
+        // A failed or refused request (e.g. the role changed to donor viewer) is never shown as "No beneficiaries found".
+        <div role="alert" lang={lang} dir={dirFor(lang)} className="flex flex-wrap items-center gap-3 rounded-md border p-4 text-sm">
+          <AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-destructive" />
+          <span className="min-w-0 flex-1">{t(isForbidden(error) ? "errors.forbidden" : "access.beneficiaries.registerError")}</span>
+          <Button size="sm" variant="outline" className="min-h-11" onClick={() => void refetch()}>
+            {t("common.retry")}
+          </Button>
+        </div>
       ) : (
         <>
           {/* Stats Row */}
@@ -163,7 +196,10 @@ export default function Beneficiaries() {
                 <ResponsiveContainer width="100%" height={120}>
                   <PieChart>
                     <Pie data={genderPieData} cx="50%" cy="50%" outerRadius={45} dataKey="value">
-                      {genderPieData.map((entry: any, i: number) => <Cell key={i} fill={entry.color} />)}
+                      {genderPieData.map((entry: any, i: number) => (
+                        // Each slice is an image to assistive technology, so it needs a name.
+                        <Cell key={i} fill={entry.color} aria-label={t("access.beneficiaries.sexSlice", { sex: t(`beneficiary.sex.${entry.name}`, { defaultValue: entry.name }), count: entry.value })} />
+                      ))}
                     </Pie>
                     <Tooltip />
                     <Legend />
@@ -175,7 +211,8 @@ export default function Beneficiaries() {
 
           {/* Table */}
           <Card>
-            <Table>
+            {/* Scrolls sideways on phones: focusable and named so keyboard users can scroll it. */}
+            <Table containerProps={{ tabIndex: 0, role: "region", "aria-label": t("access.beneficiaries.registerTable"), className: "rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" }}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>

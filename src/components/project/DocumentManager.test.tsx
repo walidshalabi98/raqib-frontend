@@ -425,3 +425,54 @@ describe("DocumentManager", () => {
     );
   });
 });
+
+describe("DocumentManager: read only (donor viewers)", () => {
+  const DONOR_NOTE =
+    "You see proposals, logframes, theories of change, baseline reports, donor guidelines and budgets. Other files, such as interview transcripts, and the AI analyses of documents stay with project staff.";
+
+  it("hides the upload, explains which documents are shown, and shows no AI analysis", async () => {
+    // Even if an older API still sent an analysis, a donor never sees unreviewed AI output.
+    vi.mocked(api.getDocuments).mockResolvedValue([makeDocument()]);
+    renderWithClient(<DocumentManager projectId="p-1" canManage={false} />);
+
+    expect(await screen.findByText("proposal.pdf")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload document" })).not.toBeInTheDocument();
+    const notes = screen.getAllByRole("note");
+    const donorNote = notes.find((note) => note.textContent === DONOR_NOTE);
+    expect(donorNote).toBeDefined();
+    expect(donorNote?.querySelector("svg")).not.toBeNull();
+    expect(screen.queryByText(AI_LABEL)).not.toBeInTheDocument();
+    expect(screen.queryByText("AI analysis")).not.toBeInTheDocument();
+    expect(api.uploadDocument).not.toHaveBeenCalled();
+  });
+
+  it("never shows an analysis as pending or missing to a donor (the API withholds it)", async () => {
+    vi.mocked(api.getDocuments).mockResolvedValue([makeDocument({ aiAnalysis: null, uploader: null, uploadedAt: ago(5_000) })]);
+    renderWithClient(<DocumentManager projectId="p-1" canManage={false} />);
+    expect(await screen.findByText("proposal.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("Preparing the AI analysis…")).not.toBeInTheDocument();
+    expect(screen.queryByText("No AI analysis is available for this document.")).not.toBeInTheDocument();
+    expect(screen.getByText("proposal.pdf: Processed")).toBeInTheDocument();
+  });
+
+  it("has a read-only empty state", async () => {
+    vi.mocked(api.getDocuments).mockResolvedValue([]);
+    renderWithClient(<DocumentManager projectId="p-1" canManage={false} />);
+    expect(await screen.findByText("No documents have been shared yet.")).toBeInTheDocument();
+    expect(screen.queryByText(/Upload a proposal, logframe or report/)).not.toBeInTheDocument();
+  });
+
+  it("shows the note in Arabic, right to left", async () => {
+    const arabicDonor: AuthUser = {
+      id: "u1", email: "d@example.org", fullName: "Donor", role: "donor_viewer", languagePref: "ar",
+      organization: { id: "org-1", name: "Org" },
+    };
+    vi.mocked(api.getUser).mockReturnValue(arabicDonor);
+    vi.mocked(api.getDocuments).mockResolvedValue([]);
+    renderWithClient(<AuthProvider><DocumentManager projectId="p-1" canManage={false} /></AuthProvider>);
+    expect(await screen.findByText("لم تتم مشاركة أي وثائق بعد.")).toBeInTheDocument();
+    const note = screen.getByRole("note");
+    expect(note).toHaveTextContent("تظهر لك المقترحات والأطر المنطقية");
+    expect(note.closest("section")).toHaveAttribute("dir", "rtl");
+  });
+});

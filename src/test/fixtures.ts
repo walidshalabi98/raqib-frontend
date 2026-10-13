@@ -1,4 +1,4 @@
-import type { Indicator, ResultNode } from "@/types/api";
+import type { DisclosedCell, DonorBeneficiarySummary, DonorQualitativeEntry, Indicator, ResultNode, StaffBeneficiaryStats } from "@/types/api";
 
 /** Test data shaped like API responses. */
 
@@ -69,4 +69,86 @@ export function sampleResultNodes(): ResultNode[] {
     makeResultNode({ id: "o11", code: "O1.1", level: "output", parentId: "o1", text: "Households receive vouchers", _count: { indicators: 1, children: 0 } }),
     makeResultNode({ id: "o2", code: "O2", level: "outcome", parentId: "g", sortOrder: 1, text: "Better nutrition practices", _count: { indicators: 0, children: 0 } }),
   ];
+}
+
+const cell = (key: string | null, count: number | null): DisclosedCell => ({ key, count, suppressed: count === null });
+
+/**
+ * A donor beneficiary summary as the backend sends it for the people in makeStaffStats (12: 9 women,
+ * 3 men; 11 adults; 10 in Hebron): counts from 1 to 4 hidden, every other figure rounded to the
+ * nearest 5 on its own (12 → 10, 9 → 10, 11 → 10), zeros shown.
+ */
+export function makeDonorSummary(overrides: Partial<DonorBeneficiarySummary> = {}): DonorBeneficiarySummary {
+  return {
+    audience: "donor",
+    minCell: 5,
+    minCellSensitive: 10,
+    roundingBase: 5,
+    otherKey: "__other__",
+    suppressedAll: false,
+    total: cell(null, 10),
+    serviceCount: cell(null, null),
+    byGender: [cell("male", null), cell("female", 10), cell("other", 0)],
+    byAgeGroup: [
+      cell("child_0_5", 0),
+      cell("child_6_11", 0),
+      cell("adolescent_12_17", 0),
+      cell("youth_18_24", 0),
+      cell("adult_25_59", 10),
+      cell("elderly_60_plus", 0),
+      cell(null, null),
+    ],
+    byGovernorate: [cell("Hebron", 10), cell(null, null), cell("__other__", null)],
+    byStatus: [cell("active", 10), cell("completed", 0), cell("dropped_out", 0), cell("referred", 0)],
+    byVulnerabilityTag: [cell("__other__", null)],
+    byServiceType: [],
+    ...overrides,
+  };
+}
+
+/** Beneficiary stats as org staff receive them (exact counts). */
+export function makeStaffStats(overrides: Partial<StaffBeneficiaryStats> = {}): StaffBeneficiaryStats {
+  return {
+    audience: "staff",
+    total: 12,
+    serviceCount: 1,
+    byGender: [
+      { gender: "female", _count: 9 },
+      { gender: "male", _count: 3 },
+    ],
+    byAgeGroup: [
+      { ageGroup: "adult_25_59", _count: 11 },
+      { ageGroup: null, _count: 1 },
+    ],
+    byGovernorate: [
+      { governorate: "Hebron", _count: 10 },
+      { governorate: null, _count: 1 },
+      { governorate: "Beit Ummar", _count: 1 },
+    ],
+    byStatus: [{ status: "active", _count: 12 }],
+    ...overrides,
+  };
+}
+
+/** A qualitative entry as donor viewers receive it (type, month and participants only). */
+export function makeDonorEntry(overrides: Partial<DonorQualitativeEntry> = {}): DonorQualitativeEntry {
+  return {
+    id: "q-1",
+    projectId: "p-1",
+    assessmentId: null,
+    entryType: "fgd_transcript",
+    monthConducted: "2026-03",
+    participants: 12,
+    ...overrides,
+  };
+}
+
+/** An unsigned JWT-shaped access token with these claims (the UI only decodes tokens; the server verifies them). */
+export function makeAccessToken(claims: Record<string, unknown>): string {
+  const encode = (value: unknown) =>
+    btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  return `${encode({ alg: "HS256", typ: "JWT" })}.${encode(claims)}.signature`;
 }
