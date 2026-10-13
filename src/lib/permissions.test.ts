@@ -20,6 +20,7 @@ const EXPECTED: Record<Capability, string[]> = {
   "assessment.request": ["me_officer", "org_admin", "platform_admin"],
   "assessment.update": ["org_admin", "platform_admin"],
   "report.generate": ["me_officer", "org_admin", "platform_admin"],
+  "report.publish": ["org_admin", "platform_admin"],
   "export.personalData": ["me_officer", "org_admin", "platform_admin"],
   "org.manage": ["org_admin", "platform_admin"],
   "users.manage": ["org_admin", "platform_admin"],
@@ -55,6 +56,8 @@ describe("permissions", () => {
     expect(can("me_officer", "project.archive")).toBe(false);
     expect(can("me_officer", "framework.approve")).toBe(false);
     expect(can("me_officer", "users.manage")).toBe(false);
+    expect(can("me_officer", "report.generate")).toBe(true);
+    expect(can("me_officer", "report.publish")).toBe(false);
     expect(can("me_officer", "templates.manage")).toBe(false);
   });
 

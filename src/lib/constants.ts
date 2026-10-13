@@ -9,6 +9,7 @@ import type {
   IndicatorProvenance,
   IndicatorStatus,
   ParsingStatus,
+  ReportType,
   Sector,
 } from "@/types/api";
 import en from "@/i18n/en.json";
@@ -53,6 +54,9 @@ export const DONOR_TYPES: readonly DonorType[] = [
   "other",
   "usaid",
 ];
+
+/** Report types (backend enum ReportType), in the order the Generate Report form offers them. */
+export const REPORT_TYPES = ["quarterly_summary", "monthly_progress", "annual_review", "assessment_report", "donor_export"] as const satisfies readonly ReportType[];
 
 export const INDICATOR_LEVELS: readonly IndicatorLevel[] = ["impact", "outcome", "output", "activity"];
 

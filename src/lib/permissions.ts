@@ -14,7 +14,7 @@ export const USER_ROLES: readonly UserRole[] = Object.freeze(["platform_admin", 
 /** May write, run AI features and see beneficiary-level personal data. */
 export const STAFF_ROLES: readonly UserRole[] = Object.freeze(["org_admin", "platform_admin", "me_officer"] as const);
 
-/** Organisation settings, users, approvals, project create/archive. */
+/** Organisation settings, users, approvals (reports published to donors included), project create/archive. */
 export const ADMIN_ROLES: readonly UserRole[] = Object.freeze(["org_admin", "platform_admin"] as const);
 
 const PLATFORM_ROLES: readonly UserRole[] = Object.freeze(["platform_admin"] as const);
@@ -39,6 +39,8 @@ export type Capability =
   | "assessment.request"
   | "assessment.update"
   | "report.generate"
+  /** Publish a report to donor viewers, or take it back to draft (PATCH /api/reports/:id/publish and /unpublish). */
+  | "report.publish"
   /** The full project export with beneficiaries, and the register CSV. */
   | "export.personalData"
   | "org.manage"
@@ -61,6 +63,7 @@ export const CAPABILITY_ROLES: Readonly<Record<Capability, readonly UserRole[]>>
   "assessment.request": STAFF_ROLES,
   "assessment.update": ADMIN_ROLES,
   "report.generate": STAFF_ROLES,
+  "report.publish": ADMIN_ROLES,
   "export.personalData": STAFF_ROLES,
   "org.manage": ADMIN_ROLES,
   "users.manage": ADMIN_ROLES,

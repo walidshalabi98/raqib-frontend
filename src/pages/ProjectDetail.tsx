@@ -1,4 +1,4 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api } from "@/services/api";
@@ -10,8 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { MetricCard } from "@/components/common/MetricCard";
 import { IndicatorTable } from "@/components/project/IndicatorTable";
-import { KPIScorecard } from "@/components/project/KPIScorecard";
-import { TrendChart } from "@/components/project/TrendChart";
+import { ProjectDashboard } from "@/components/project/ProjectDashboard";
 import { AssessmentPipeline } from "@/components/project/AssessmentPipeline";
 import { AssessmentModal } from "@/components/project/AssessmentModal";
 import { ReportsList } from "@/components/project/ReportsList";
@@ -45,6 +44,11 @@ class MapErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
 
 const timelineStages = ["Setup", "Baseline", "Implementation", "Midterm", "Endline", "Complete"];
 
+/** The project page's tabs, in order. `?tab=<value>` opens one (links from the Reports page and notifications). */
+const PROJECT_TABS = ["overview", "me-framework", "dashboard", "risks", "assessments", "reports", "documents", "qualitative", "export"] as const;
+type ProjectTab = (typeof PROJECT_TABS)[number];
+const isProjectTab = (value: string | null): value is ProjectTab => (PROJECT_TABS as readonly (string | null)[]).includes(value);
+
 function getStageIndex(status: string): number {
   const map: Record<string, number> = { setup: 0, framework_review: 1, active: 2, completed: 5, archived: 5 };
   return map[status] || 0;
@@ -57,6 +61,22 @@ export default function ProjectDetail() {
   const lang = useUserLanguage();
   const { t } = useTranslation(undefined, { lng: lang });
   const timelineHeadingId = useId();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const tab: ProjectTab = isProjectTab(requestedTab) ? requestedTab : "overview";
+  // The open tab is in the address, so it can be linked to and survives a reload; switching replaces the entry.
+  const selectTab = (value: string) => {
+    if (!isProjectTab(value)) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value === "overview") next.delete("tab");
+        else next.set("tab", value);
+        return next;
+      },
+      { replace: true },
+    );
+  };
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
@@ -80,7 +100,7 @@ export default function ProjectDetail() {
   const atRisk = indicators.filter((i) => i.status === "at_risk").length;
   const offTrack = indicators.filter((i) => i.status === "off_track").length;
 
-  const tabs = [
+  const tabs: { label: string; value: ProjectTab }[] = [
     { label: "Overview", value: "overview" },
     { label: "M&E Framework", value: "me-framework" },
     { label: "Dashboard", value: "dashboard" },
@@ -111,7 +131,7 @@ export default function ProjectDetail() {
         </p>
       )}
 
-      <Tabs defaultValue="overview" className="w-full">
+      <Tabs value={tab} onValueChange={selectTab} className="w-full">
         <TabsList className="w-full justify-start overflow-x-auto bg-transparent border-b rounded-none h-auto p-0 gap-0">
           {tabs.map(tab => (
             <TabsTrigger
@@ -206,9 +226,8 @@ export default function ProjectDetail() {
         </TabsContent>
 
         {/* Dashboard */}
-        <TabsContent value="dashboard" className="space-y-5 mt-5">
-          <KPIScorecard projectId={id!} />
-          <TrendChart projectId={id!} />
+        <TabsContent value="dashboard" className="mt-5">
+          <ProjectDashboard projectId={id!} />
         </TabsContent>
 
         {/* Risk Alerts */}
@@ -224,7 +243,7 @@ export default function ProjectDetail() {
 
         {/* Reports */}
         <TabsContent value="reports" className="mt-5">
-          <ReportsList projectId={id!} canGenerate={can("report.generate")} />
+          <ReportsList projectId={id!} canGenerate={can("report.generate")} canPublish={can("report.publish")} />
         </TabsContent>
 
         {/* Documents */}

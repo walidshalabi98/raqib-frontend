@@ -676,6 +676,27 @@ export interface DonorAssessment {
 
 export type ReportType = "monthly_progress" | "quarterly_summary" | "assessment_report" | "donor_export" | "annual_review";
 
+/** Donor viewers see `published` reports only; every report starts as a `draft` (its narrative is unreviewed AI text). */
+export type ReportStatus = "draft" | "published";
+
+/**
+ * A report as org staff receive it (GET /api/projects/:id/reports): drafts included. `aiNarrative` is the report
+ * HTML written by AI, null while it is being generated (or when generation failed).
+ */
+export interface Report {
+  id: string;
+  projectId: string;
+  type: ReportType;
+  title: string;
+  donorFormat: DonorType | null;
+  fileUrl: string | null;
+  generatedAt: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  aiNarrative: string | null;
+  status: ReportStatus;
+}
+
 /** A report as donor viewers receive it: published reports only (a draft holds an unreviewed AI narrative), never fileUrl. */
 export interface DonorReport {
   id: string;
@@ -710,6 +731,91 @@ export interface DonorProjectExport {
 }
 
 export type ProjectExport = StaffProjectExport | DonorProjectExport;
+
+/** A row of GET /api/projects/:id/reports: every report for org staff, published ones only (DonorReport) for everyone else. */
+export type ReportListItem = Report | DonorReport;
+
+/** GET /api/reports/:id: org staff get the report with its project; donor viewers a published DonorReport only. */
+export type ReportDetail = (Report & { project?: { id: string; name: string } }) | DonorReport;
+
+/** POST /api/projects/:id/reports/generate (org staff). */
+export interface ReportGenerateInput {
+  type: ReportType;
+  title: string;
+  donorFormat?: DonorType;
+  /** "YYYY-MM-DD". */
+  periodStart?: string;
+  periodEnd?: string;
+}
+
+/** The answer to a generate request (202): the narrative is written in the background. */
+export interface ReportGenerateResponse {
+  reportId: string;
+  status: "processing";
+}
+
+// -------------------------------------------------------------- dashboard
+
+/** One indicator of GET /api/dashboard/projects/:id/dashboard (`trends`). */
+export interface DashboardTrend {
+  indicatorId: string;
+  indicatorText: string;
+  level: IndicatorLevel;
+  /** With the level, decides how progress is shown (src/lib/trends.ts indicatorProgress). */
+  unit?: string | null;
+  status: IndicatorStatus;
+  baselineValue: string | null;
+  targetValue: string | null;
+  currentValue: string | null;
+  /** The 10 most recent values, newest first (donor viewers: never respondent-level rows). */
+  dataPoints: { value: string; date: string }[];
+  /** Donor viewers only: KoboToolbox submissions as released monthly aggregates. */
+  surveyAggregates?: DonorSurveyAggregate[];
+}
+
+/**
+ * Data points per area (`geographic`). Staff get the areas as typed; donor viewers get listed places only (the
+ * English name, with the Arabic one in `areaAr`), and every other area in one `area: null` group.
+ */
+export interface DashboardArea {
+  area: string | null;
+  /** Donor viewers only. */
+  areaAr?: string | null;
+  dataPointCount: number;
+}
+
+/** A row of `recentActivity` for org staff: the full data point with its indicator and author. */
+export type StaffDashboardActivity = DataPoint & {
+  indicator?: { indicatorText: string } | null;
+  creator?: { fullName: string } | null;
+};
+
+/** `recentActivity`: staff rows, or donor rows (no notes, attachments or author; listed areas only). */
+export type DashboardActivity = StaffDashboardActivity | DonorDataPoint;
+
+/**
+ * GET /api/dashboard/projects/:id/dashboard. Org staff and donor viewers get the same keys; the donor shape differs
+ * in `trends[].surveyAggregates`, `geographic` and `recentActivity` (see the types above). There is no `audience` key.
+ */
+export interface ProjectDashboard {
+  project: {
+    id: string;
+    name: string;
+    status: ProjectStatus;
+    sector: Sector;
+    donor: string;
+    startDate: string;
+    endDate: string;
+    targetBeneficiaries: number | null;
+  };
+  framework: { id: string; version: number; status: FrameworkStatus; totalIndicators: number } | null;
+  indicatorStatus: Record<IndicatorStatus, number>;
+  indicatorLevels: Record<IndicatorLevel, number>;
+  trends: DashboardTrend[];
+  geographic: DashboardArea[];
+  recentActivity: DashboardActivity[];
+  assessments: { id: string; type: AssessmentType; status: AssessmentStatus; requestedAt: string }[];
+}
 
 // --------------------------------------------------------------- library
 

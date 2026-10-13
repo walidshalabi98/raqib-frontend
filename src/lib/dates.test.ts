@@ -37,6 +37,11 @@ describe("formatMonthYear", () => {
     expect(ar).toMatch(/2026/);
   });
 
+  it("has a short form for chart axes", () => {
+    expect(formatMonthYear("2026-03", "en", "short")).toBe("Mar 2026");
+    expect(formatMonthYear("2026-03", "ar", "short")).toContain("مارس");
+  });
+
   it("returns an empty string for missing or unreadable months", () => {
     expect(formatMonthYear(null, "en")).toBe("");
     expect(formatMonthYear(undefined, "ar")).toBe("");
