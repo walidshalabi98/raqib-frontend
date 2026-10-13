@@ -427,7 +427,10 @@ export interface IndicatorDataResponse {
     unit: string | null;
     disaggregation: string[] | null;
   };
+  /** Donor viewers: DonorDataPoint rows, never respondent-level ones (see surveyAggregates). */
   dataPoints: Array<DataPoint & { creator?: { fullName: string } }>;
+  /** Donor viewers only: KoboToolbox submissions as published monthly aggregates. */
+  surveyAggregates?: DonorSurveyAggregate[];
   trend: "increasing" | "decreasing" | "stable" | "insufficient_data";
   count: number;
 }
@@ -511,6 +514,307 @@ export interface RedactionCounts {
 export interface QualitativeEntryCreateResponse extends QualitativeEntry {
   /** Absent from backends that do not redact typed notes when they are saved. */
   redactions?: RedactionCounts;
+}
+
+// ------------------------------------------- beneficiaries and donor views
+// The role decides the shape: org staff (org_admin, platform_admin, me_officer) get the full
+// data; anyone else (donor_viewer) gets a projection without personal data
+// (backend docs/SECURITY_SETUP.md §8).
+
+export type Gender = "male" | "female" | "other";
+
+export type AgeGroup = "child_0_5" | "child_6_11" | "adolescent_12_17" | "youth_18_24" | "adult_25_59" | "elderly_60_plus";
+
+export type BeneficiaryStatus = "active" | "completed" | "dropped_out" | "referred";
+
+/** GET /api/projects/:id/beneficiaries/stats for org staff: exact counts. Older backends omit `audience`. */
+export interface StaffBeneficiaryStats {
+  audience?: "staff";
+  total: number;
+  serviceCount: number;
+  byGender: { gender: Gender; _count: number }[];
+  byAgeGroup: { ageGroup: AgeGroup | null; _count: number }[];
+  byGovernorate: { governorate: string | null; _count: number }[];
+  byStatus: { status: BeneficiaryStatus; _count: number }[];
+}
+
+/** One count after small-cell disclosure control: `count` is null exactly when `suppressed` is true. */
+export interface DisclosedCell {
+  key: string | null;
+  count: number | null;
+  suppressed: boolean;
+}
+
+/**
+ * GET /api/projects/:id/beneficiaries/stats for everyone else (donor viewers): one-way tables
+ * with counts from 1 to minCell − 1 hidden (minCellSensitive − 1 in the sensitive tables, which
+ * also hide a count almost everyone shares) and every other count and total rounded to the
+ * nearest 5, each on its own, so rows may not add up to the total. A table where a hidden count
+ * could still be worked out from the rounded figures comes with every cell hidden. Free-text keys
+ * (governorate, vulnerability tag, service type) are shown as typed; `otherKey` marks the merged
+ * "Other (combined)" row and null "Not recorded".
+ */
+export interface DonorBeneficiarySummary {
+  audience: "donor";
+  /** Counts below this are hidden (5). */
+  minCell: number;
+  /** Counts by vulnerability tag and service type below this are hidden (10). */
+  minCellSensitive: number;
+  /** Every shown count and total is rounded to a multiple of this (5); 0 stays 0. Older responses omit it. */
+  roundingBase?: number;
+  otherKey: "__other__";
+  /**
+   * Nothing is shown (total and serviceCount hidden, every array empty): 1 ≤ total < minCell, or, rarely, a
+   * small count could otherwise be worked out from the rounded figures.
+   */
+  suppressedAll: boolean;
+  total: DisclosedCell;
+  serviceCount: DisclosedCell;
+  /** 'male', 'female', 'other' in that order (always present). */
+  byGender: DisclosedCell[];
+  /** AgeGroup order, then null when above 0. */
+  byAgeGroup: DisclosedCell[];
+  /** Largest first, ties by name; then null; then otherKey. */
+  byGovernorate: DisclosedCell[];
+  /** 'active', 'completed', 'dropped_out', 'referred'. */
+  byStatus: DisclosedCell[];
+  /** People per tag (one person can count in several rows); largest first, otherKey last. */
+  byVulnerabilityTag: DisclosedCell[];
+  /** Distinct people per service type (one person can count in several rows); largest first, otherKey last. */
+  byServiceType: DisclosedCell[];
+}
+
+export type BeneficiaryStats = StaffBeneficiaryStats | DonorBeneficiarySummary;
+
+/**
+ * A qualitative entry as donor viewers receive it: what was done (type, month, number of
+ * participants). Never the title, notes, names, places or exact dates, and no unreviewed AI output
+ * (themes, sentiment, linked indicators).
+ */
+export interface DonorQualitativeEntry {
+  id: string;
+  projectId: string;
+  assessmentId: string | null;
+  entryType: QualitativeType;
+  /** "YYYY-MM" */
+  monthConducted: string | null;
+  participants: number | null;
+}
+
+/**
+ * A data point as donor viewers receive it: no notes, attachments or author; geographicArea only when it is a
+ * listed region or governorate (otherwise null). Never a respondent-level row (see DonorSurveyAggregate).
+ */
+export interface DonorDataPoint {
+  id: string;
+  indicatorId: string;
+  assessmentId: string | null;
+  value: string;
+  collectionDate: string;
+  collectionMethod: CollectionMethod;
+  dataSource: string | null;
+  geographicArea: string | null;
+  breakdown: Breakdown | null;
+  createdAt: string;
+  /** Dashboard recentActivity only. */
+  indicator?: { indicatorText: string };
+}
+
+/** GET /api/projects/:id/export for org staff: the full project, beneficiaries' personal data included. Older backends omit `audience`. */
+export interface StaffProjectExport {
+  audience?: "staff";
+  project: Project;
+  frameworks: unknown[];
+  indicators: unknown[];
+  beneficiaries: unknown[];
+  assessments: unknown[];
+  qualitativeEntries: QualitativeEntry[];
+  exportedAt: string;
+}
+
+/**
+ * Donor viewers never receive respondent-level rows (KoboToolbox submissions: one respondent each), and the
+ * record counts they see leave them out. They get one aggregate per indicator and calendar month instead,
+ * published 14 days after the month ends from the submissions received by then, so it never changes later.
+ * Household-survey results that staff enter (one row per survey round) are ordinary data points.
+ */
+export interface DonorSurveyAggregate {
+  indicatorId: string;
+  /** "YYYY-MM" (UTC). */
+  period: string;
+  /** Submissions in the month, with the disclosure rules for counts: 1 to 4 hidden, otherwise rounded to 5. */
+  submissions: DisclosedCell;
+  /**
+   * "yes_count" when every answer is yes/no (1/0, or 100/0 for a percent unit): the number of yes answers;
+   * "sum" for indicators that count something; otherwise "mean".
+   */
+  aggregation: "yes_count" | "sum" | "mean";
+  /**
+   * Null when the submissions are hidden, no answer is a number, a count (yes_count, sum) is 1 to 4, or a mean
+   * would be of 7 answers or fewer. Counts are rounded to the nearest 5; a mean to one decimal place.
+   */
+  value: number | null;
+  /** Answers that are numbers (yes/no count as 1/0), shown like `submissions`. */
+  numericAnswers: DisclosedCell;
+}
+
+export type AssessmentType = "baseline" | "midterm" | "endline" | "fgd_round" | "kii_round" | "observation_round" | "survey_round";
+
+export type AssessmentStatus = "requested" | "scoping" | "in_field" | "data_cleaning" | "analysis" | "reporting" | "delivered";
+
+/** An assessment as donor viewers receive it: never its AI report text (scopeDescription), price or report location. */
+export interface DonorAssessment {
+  id: string;
+  projectId: string;
+  type: AssessmentType;
+  status: AssessmentStatus;
+  requestedAt: string;
+  deliveredAt: string | null;
+  sampleSize: number | null;
+  methodsIncluded: CollectionMethod[];
+}
+
+export type ReportType = "monthly_progress" | "quarterly_summary" | "assessment_report" | "donor_export" | "annual_review";
+
+/** Donor viewers see `published` reports only; every report starts as a `draft` (its narrative is unreviewed AI text). */
+export type ReportStatus = "draft" | "published";
+
+/**
+ * A report as org staff receive it (GET /api/projects/:id/reports): drafts included. `aiNarrative` is the report
+ * HTML written by AI, null while it is being generated (or when generation failed).
+ */
+export interface Report {
+  id: string;
+  projectId: string;
+  type: ReportType;
+  title: string;
+  donorFormat: DonorType | null;
+  fileUrl: string | null;
+  generatedAt: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  aiNarrative: string | null;
+  status: ReportStatus;
+}
+
+/** A report as donor viewers receive it: published reports only (a draft holds an unreviewed AI narrative), never fileUrl. */
+export interface DonorReport {
+  id: string;
+  projectId: string;
+  type: ReportType;
+  title: string;
+  donorFormat: DonorType | null;
+  generatedAt: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  status: "published";
+  aiNarrative: string | null;
+}
+
+/** GET /api/projects/:id/export for everyone else: results without personal data. There is no `beneficiaries` key. */
+export interface DonorProjectExport {
+  audience: "donor";
+  personalData: "excluded";
+  /** The project's own fields from an explicit list (no organisation id, timestamps or relations). */
+  project: Pick<
+    Project,
+    | "id" | "name" | "nameAr" | "description" | "sector" | "sectors" | "humanitarian" | "donor" | "donorType" | "budgetUsd"
+    | "startDate" | "endDate" | "targetBeneficiaries" | "geographicScope" | "status"
+  >;
+  frameworks: unknown[];
+  /** Data points that are not respondent-level, and monthly aggregates of those that are. */
+  indicators: Array<Record<string, unknown> & { dataPoints: DonorDataPoint[]; surveyAggregates: DonorSurveyAggregate[] }>;
+  beneficiarySummary: DonorBeneficiarySummary;
+  qualitativeEntries: DonorQualitativeEntry[];
+  assessments: DonorAssessment[];
+  exportedAt: string;
+}
+
+export type ProjectExport = StaffProjectExport | DonorProjectExport;
+
+/** A row of GET /api/projects/:id/reports: every report for org staff, published ones only (DonorReport) for everyone else. */
+export type ReportListItem = Report | DonorReport;
+
+/** GET /api/reports/:id: org staff get the report with its project; donor viewers a published DonorReport only. */
+export type ReportDetail = (Report & { project?: { id: string; name: string } }) | DonorReport;
+
+/** POST /api/projects/:id/reports/generate (org staff). */
+export interface ReportGenerateInput {
+  type: ReportType;
+  title: string;
+  donorFormat?: DonorType;
+  /** "YYYY-MM-DD". */
+  periodStart?: string;
+  periodEnd?: string;
+}
+
+/** The answer to a generate request (202): the narrative is written in the background. */
+export interface ReportGenerateResponse {
+  reportId: string;
+  status: "processing";
+}
+
+// -------------------------------------------------------------- dashboard
+
+/** One indicator of GET /api/dashboard/projects/:id/dashboard (`trends`). */
+export interface DashboardTrend {
+  indicatorId: string;
+  indicatorText: string;
+  level: IndicatorLevel;
+  /** With the level, decides how progress is shown (src/lib/trends.ts indicatorProgress). */
+  unit?: string | null;
+  status: IndicatorStatus;
+  baselineValue: string | null;
+  targetValue: string | null;
+  currentValue: string | null;
+  /** The 10 most recent values, newest first (donor viewers: never respondent-level rows). */
+  dataPoints: { value: string; date: string }[];
+  /** Donor viewers only: KoboToolbox submissions as released monthly aggregates. */
+  surveyAggregates?: DonorSurveyAggregate[];
+}
+
+/**
+ * Data points per area (`geographic`). Staff get the areas as typed; donor viewers get listed places only (the
+ * English name, with the Arabic one in `areaAr`), and every other area in one `area: null` group.
+ */
+export interface DashboardArea {
+  area: string | null;
+  /** Donor viewers only. */
+  areaAr?: string | null;
+  dataPointCount: number;
+}
+
+/** A row of `recentActivity` for org staff: the full data point with its indicator and author. */
+export type StaffDashboardActivity = DataPoint & {
+  indicator?: { indicatorText: string } | null;
+  creator?: { fullName: string } | null;
+};
+
+/** `recentActivity`: staff rows, or donor rows (no notes, attachments or author; listed areas only). */
+export type DashboardActivity = StaffDashboardActivity | DonorDataPoint;
+
+/**
+ * GET /api/dashboard/projects/:id/dashboard. Org staff and donor viewers get the same keys; the donor shape differs
+ * in `trends[].surveyAggregates`, `geographic` and `recentActivity` (see the types above). There is no `audience` key.
+ */
+export interface ProjectDashboard {
+  project: {
+    id: string;
+    name: string;
+    status: ProjectStatus;
+    sector: Sector;
+    donor: string;
+    startDate: string;
+    endDate: string;
+    targetBeneficiaries: number | null;
+  };
+  framework: { id: string; version: number; status: FrameworkStatus; totalIndicators: number } | null;
+  indicatorStatus: Record<IndicatorStatus, number>;
+  indicatorLevels: Record<IndicatorLevel, number>;
+  trends: DashboardTrend[];
+  geographic: DashboardArea[];
+  recentActivity: DashboardActivity[];
+  assessments: { id: string; type: AssessmentType; status: AssessmentStatus; requestedAt: string }[];
 }
 
 // --------------------------------------------------------------- library

@@ -143,7 +143,9 @@ export const DOCUMENT_WAIT_MS = 15 * 60_000;
  * - transcript: an FGD/KII transcript from the qualitative upload, which is never analysed here;
  * - analysing: read, the analysis may still arrive (within DOCUMENT_WAIT_MS);
  * - noAnalysis: read, but no analysis to show (it failed, or the stored one has nothing to show);
- * - analysed: the analysis is there.
+ * - analysed: the analysis is there;
+ * - read: read, for a viewer the AI analysis is withheld from (donor viewers: it is not reviewed), so no
+ *   analysis state is shown and nothing is awaited.
  */
 export type DocumentRowState =
   | "pending"
@@ -154,7 +156,8 @@ export type DocumentRowState =
   | "transcript"
   | "analysing"
   | "noAnalysis"
-  | "analysed";
+  | "analysed"
+  | "read";
 
 type DocumentState = Pick<ProjectDocument, "parsingStatus" | "uploadedAt"> &
   Partial<Pick<ProjectDocument, "textLength" | "qualitativeSource">> & { aiAnalysis?: unknown };
@@ -165,8 +168,11 @@ function withinWait(doc: DocumentState, now: number): boolean {
   return !Number.isNaN(uploaded) && now - uploaded < DOCUMENT_WAIT_MS;
 }
 
-/** The row state of a document at `now` (a timestamp in ms). */
-export function documentRowState(doc: DocumentState, now: number): DocumentRowState {
+/**
+ * The row state of a document at `now` (a timestamp in ms). `analysisWithheld` (donor viewers, who never
+ * receive the unreviewed AI analysis) turns every read document into "read".
+ */
+export function documentRowState(doc: DocumentState, now: number, analysisWithheld = false): DocumentRowState {
   switch (doc.parsingStatus) {
     case "failed":
       return "failed";
@@ -178,6 +184,7 @@ export function documentRowState(doc: DocumentState, now: number): DocumentRowSt
     default:
       return withinWait(doc, now) ? "pending" : "stalled";
   }
+  if (analysisWithheld) return "read";
   if (documentAnalysisOf(doc)) return "analysed";
   // A missing textLength (an older API) is unknown, not "no text".
   if (typeof doc.textLength === "number" && doc.textLength <= ANALYSIS_MIN_TEXT_LENGTH) return "noText";
@@ -191,17 +198,17 @@ export function documentRowState(doc: DocumentState, now: number): DocumentRowSt
 const WAITING_STATES: ReadonlySet<DocumentRowState> = new Set(["pending", "processing", "analysing"]);
 
 /** True while the document list should refresh on its own: a file is being read or awaits its analysis. */
-export function documentsNeedRefresh(docs: readonly DocumentState[], now: number): boolean {
-  return docs.some((doc) => WAITING_STATES.has(documentRowState(doc, now)));
+export function documentsNeedRefresh(docs: readonly DocumentState[], now: number, analysisWithheld = false): boolean {
+  return docs.some((doc) => WAITING_STATES.has(documentRowState(doc, now, analysisWithheld)));
 }
 
 /**
  * When the next row stops waiting (upload + DOCUMENT_WAIT_MS), so the screen can
  * update without a refetch; null when no row is waiting.
  */
-export function nextWaitDeadline(docs: readonly DocumentState[], now: number): number | null {
+export function nextWaitDeadline(docs: readonly DocumentState[], now: number, analysisWithheld = false): number | null {
   const deadlines = docs
-    .filter((doc) => WAITING_STATES.has(documentRowState(doc, now)))
+    .filter((doc) => WAITING_STATES.has(documentRowState(doc, now, analysisWithheld)))
     .map((doc) => Date.parse(doc.uploadedAt) + DOCUMENT_WAIT_MS);
   return deadlines.length > 0 ? Math.min(...deadlines) : null;
 }

@@ -6,9 +6,14 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { RequireCapability } from "@/components/RequireCapability";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { Layout } from "@/components/layout/Layout";
+import { PageSkeleton } from "@/components/layout/PageSkeleton";
 import Login from "./pages/Login";
+
+// The signed-in layout loads with the translations it uses (labels of its icon buttons), so the
+// login screen's bundle stays small.
+const Layout = lazy(() => import("@/components/layout/Layout").then((module) => ({ default: module.Layout })));
 
 // Pages behind sign-in are loaded on demand so the login screen downloads less code.
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -40,11 +45,27 @@ const App = () => (
           <BrowserRouter>
           <Routes>
             <Route path="/" element={<Login />} />
-            <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+            <Route
+              element={
+                <ProtectedRoute>
+                  <Suspense fallback={<PageSkeleton />}>
+                    <Layout />
+                  </Suspense>
+                </ProtectedRoute>
+              }
+            >
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/projects" element={<Projects />} />
               <Route path="/projects/:id" element={<ProjectDetail />} />
-              <Route path="/wizard/:id" element={<AIWizard />} />
+              <Route
+                path="/wizard/:id"
+                element={
+                  // AI framework generation is for org staff; donor viewers go back to the project.
+                  <RequireCapability capability="ai.run" redirectTo={(p) => `/projects/${encodeURIComponent(p.id ?? "")}`}>
+                    <AIWizard />
+                  </RequireCapability>
+                }
+              />
               <Route path="/beneficiaries" element={<Beneficiaries />} />
               <Route path="/assessments" element={<Assessments />} />
               <Route path="/reports" element={<Reports />} />

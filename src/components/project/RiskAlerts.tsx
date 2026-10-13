@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { api } from "@/services/api";
+import { dirFor } from "@/i18n";
+import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,14 +22,33 @@ const TREND_ICONS: Record<string, any> = {
   improving: TrendingUp,
 };
 
-export default function RiskAlerts({ projectId }: { projectId: string }) {
+/**
+ * AI risk analysis of the project's indicators. `readOnly` (donor viewers) replaces it with an
+ * explanation and never calls the analysis: it is an AI cost, and its unreviewed output reaches
+ * donors only through reviewed reports.
+ */
+export default function RiskAlerts({ projectId, readOnly = false }: { projectId: string; readOnly?: boolean }) {
   const [enabled, setEnabled] = useState(false);
+  const lang = useUserLanguage();
+  const { t } = useTranslation(undefined, { lng: lang });
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["risk-analysis", projectId],
     queryFn: () => api.getRiskAnalysis(projectId),
-    enabled,
+    enabled: enabled && !readOnly,
   });
+
+  if (readOnly) {
+    return (
+      <Card lang={lang} dir={dirFor(lang)}>
+        <CardContent className="py-8 text-center">
+          <Shield aria-hidden="true" className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-40" />
+          <h3 className="font-semibold mb-2">{t("access.risks.donorTitle")}</h3>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">{t("access.risks.donorBody")}</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (!enabled) {
     return (
