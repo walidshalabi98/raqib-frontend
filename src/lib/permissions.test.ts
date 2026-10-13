@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ADMIN_ROLES, CAPABILITY_ROLES, STAFF_ROLES, USER_ROLES, can, isUserRole, type Capability } from "@/lib/permissions";
+import { ADMIN_ROLES, CAPABILITY_ROLES, STAFF_ROLES, USER_ROLES, can, canResetPasswordOf, isUserRole, type Capability } from "@/lib/permissions";
 
 /**
  * The backend role matrix (backend docs/SECURITY_SETUP.md §8, tests/roles.test.ts), written out
@@ -24,6 +24,7 @@ const EXPECTED: Record<Capability, string[]> = {
   "export.personalData": ["me_officer", "org_admin", "platform_admin"],
   "org.manage": ["org_admin", "platform_admin"],
   "users.manage": ["org_admin", "platform_admin"],
+  "users.resetPassword": ["org_admin", "platform_admin"],
   "templates.manage": ["platform_admin"],
 };
 
@@ -76,5 +77,20 @@ describe("permissions", () => {
     expect(Object.isFrozen(CAPABILITY_ROLES)).toBe(true);
     expect(Object.isFrozen(STAFF_ROLES)).toBe(true);
     expect(() => (STAFF_ROLES as string[]).push("donor_viewer")).toThrow();
+  });
+
+  it("lets admins reset other members' passwords, never their own, and a platform admin's only as a platform admin", () => {
+    const admin = { id: "u-admin", role: "org_admin" };
+    const platform = { id: "u-platform", role: "platform_admin" };
+    expect(canResetPasswordOf(admin, { id: "u-2", role: "me_officer" })).toBe(true);
+    expect(canResetPasswordOf(admin, { id: "u-3", role: "donor_viewer" })).toBe(true);
+    expect(canResetPasswordOf(admin, { id: "u-4", role: "org_admin" })).toBe(true);
+    expect(canResetPasswordOf(admin, { id: "u-admin", role: "org_admin" })).toBe(false);
+    expect(canResetPasswordOf(admin, { id: "u-platform", role: "platform_admin" })).toBe(false);
+    expect(canResetPasswordOf(platform, { id: "u-5", role: "platform_admin" })).toBe(true);
+    expect(canResetPasswordOf({ id: "u-6", role: "me_officer" }, { id: "u-2", role: "donor_viewer" })).toBe(false);
+    expect(canResetPasswordOf({ id: "u-7", role: "donor_viewer" }, { id: "u-2", role: "donor_viewer" })).toBe(false);
+    expect(canResetPasswordOf({ id: "u-8", role: "" }, { id: "u-2", role: "donor_viewer" })).toBe(false);
+    expect(canResetPasswordOf(null, { id: "u-2", role: "donor_viewer" })).toBe(false);
   });
 });

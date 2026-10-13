@@ -81,10 +81,58 @@ export interface AuthUser {
   organization: { id: string; name: string; nameAr?: string | null };
 }
 
-export interface LoginResponse {
+/** A session's token pair: sign-in, refresh, and POST /api/auth/change-password (which ends every other session). */
+export interface SessionTokens {
   accessToken: string;
   refreshToken: string;
+}
+
+export interface LoginResponse extends SessionTokens {
   user: AuthUser;
+}
+
+/** A member of the organisation as GET /api/users lists them (org admins and platform admins). */
+export interface OrgUser {
+  id: string;
+  email: string;
+  fullName: string;
+  fullNameAr?: string | null;
+  role: UserRole | string;
+  languagePref?: Language | string;
+  createdAt?: string;
+  lastLogin?: string | null;
+}
+
+/** POST /api/users/invite. */
+export interface UserInviteInput {
+  fullName: string;
+  email: string;
+  role: UserRole;
+}
+
+/**
+ * How a new password reaches the user, after an invitation or an admin's password reset. When the email went
+ * out, it carries a single-use link to choose a password and the answer holds no password (`emailSent: true`).
+ * Otherwise (email off, or the email failed) the API returns the temporary password once, for the admin to
+ * share privately; it is never stored, cached or logged by the app (src/components/settings/PasswordHandover.tsx).
+ */
+export interface PasswordHandover {
+  emailSent: boolean;
+  temporaryPassword?: string;
+}
+
+/** POST /api/users/invite → 201: the new user, and how the temporary password reaches them. */
+export interface InviteUserResponse extends PasswordHandover {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole | string;
+  createdAt?: string;
+}
+
+/** POST /api/users/:id/reset-password → 200. */
+export interface ResetUserPasswordResponse extends PasswordHandover {
+  id?: string;
 }
 
 // --------------------------------------------------------------- projects

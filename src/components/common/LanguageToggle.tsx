@@ -6,15 +6,19 @@ import { cn } from "@/lib/utils";
 /**
  * EN/AR switch for one screen or dialog. Each button names its language in
  * that language ("English", "العربية") and shows its state with aria-pressed.
+ * `size="lg"` gives 44 × 44 px touch targets (UX_STANDARDS §7), for screens
+ * where it is the only language control (sign-in, reset password).
  */
 export function LanguageToggle({
   value,
   onChange,
   className,
+  size = "sm",
 }: {
   value: AppLanguage;
   onChange: (lang: AppLanguage) => void;
   className?: string;
+  size?: "sm" | "lg";
 }) {
   const { t } = useTranslation(undefined, { lng: value });
   return (
@@ -29,7 +33,8 @@ export function LanguageToggle({
             aria-pressed={value === lang}
             onClick={() => onChange(lang)}
             className={cn(
-              "min-h-8 px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              size === "lg" ? "min-h-11 min-w-11 px-3 py-2 text-sm" : "min-h-8 px-2.5 py-1 text-xs",
+              "font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               value === lang ? "bg-primary text-primary-foreground" : "bg-background hover:bg-secondary",
             )}
           >

@@ -44,7 +44,10 @@ export type Capability =
   /** The full project export with beneficiaries, and the register CSV. */
   | "export.personalData"
   | "org.manage"
+  /** List, invite and change the organisation's users. */
   | "users.manage"
+  /** Give a member a new temporary password (POST /api/users/:id/reset-password); see canResetPasswordOf. */
+  | "users.resetPassword"
   | "templates.manage";
 
 /** The roles allowed each capability. donor_viewer has none: donors read results only. */
@@ -67,6 +70,7 @@ export const CAPABILITY_ROLES: Readonly<Record<Capability, readonly UserRole[]>>
   "export.personalData": STAFF_ROLES,
   "org.manage": ADMIN_ROLES,
   "users.manage": ADMIN_ROLES,
+  "users.resetPassword": ADMIN_ROLES,
   "templates.manage": PLATFORM_ROLES,
 });
 
@@ -80,4 +84,19 @@ export function can(role: string | null | undefined, capability: Capability): bo
   if (!isUserRole(role)) return false;
   if (!Object.prototype.hasOwnProperty.call(CAPABILITY_ROLES, capability)) return false;
   return CAPABILITY_ROLES[capability].includes(role);
+}
+
+/**
+ * Whether `actor` may reset `target`'s password from the users list: the users.resetPassword capability,
+ * not for their own account (they use Settings → Change password, which asks for the current one), and a
+ * platform admin's password only by a platform admin (as only a platform admin can assign that role).
+ */
+export function canResetPasswordOf(
+  actor: { id: string; role: string | null | undefined } | null | undefined,
+  target: { id: string; role: string | null | undefined },
+): boolean {
+  if (!actor || !can(actor.role, "users.resetPassword")) return false;
+  if (actor.id === target.id) return false;
+  if (target.role === "platform_admin" && actor.role !== "platform_admin") return false;
+  return true;
 }

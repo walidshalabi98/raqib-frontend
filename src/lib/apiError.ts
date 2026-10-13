@@ -7,12 +7,21 @@ import type { TFunction } from "i18next";
  */
 export class ApiError extends Error {
   readonly status?: number;
+  /** The API's stable reason code, when it sends one (e.g. `password_too_short`), for screens to explain in EN/AR. */
+  readonly code?: string;
 
-  constructor(message: string, status?: number) {
+  constructor(message: string, status?: number, code?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
+}
+
+/** The API's reason code of a failed call (`{ message, code }`), or undefined. */
+export function errorCodeOf(err: unknown): string | undefined {
+  const code = err instanceof ApiError ? err.code : (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && code ? code : undefined;
 }
 
 /** The HTTP status of a failed API call, or undefined when it is unknown. */
