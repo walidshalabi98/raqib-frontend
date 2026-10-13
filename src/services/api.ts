@@ -17,11 +17,13 @@ import type {
   LoginResponse,
   OrgUser,
   Project,
+  ProjectDeleteResponse,
   ProjectDetail,
   ProjectDocument,
   ProjectExport,
   ProjectDashboard,
   ProjectInput,
+  ProjectListOptions,
   ProjectUpdateInput,
   QualitativeEntryCreateResponse,
   Report,
@@ -37,8 +39,9 @@ import type {
   SessionTokens,
   UserInviteInput,
 } from '@/types/api';
-import { ApiError } from '@/lib/apiError';
+import { ApiError, PROJECT_ARCHIVED_CODE } from '@/lib/apiError';
 import { emitAuthChange } from '@/lib/authEvents';
+import { emitProjectArchivedRefusal } from '@/lib/projectEvents';
 import { sessionUser } from '@/lib/session';
 
 interface QualitativeUploadMetadata {
@@ -158,11 +161,20 @@ class ApiClient {
 
   /** The parsed body of a successful response, or an ApiError with the response's status, message and code. */
   private async readResponse<T>(response: Response): Promise<T> {
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new ApiError(error.message || 'API request failed', response.status, typeof error.code === 'string' ? error.code : undefined);
-    }
+    if (!response.ok) throw await this.failure(response, 'API request failed');
     return this.parseBody<T>(response);
+  }
+
+  /**
+   * The ApiError for a failed response (status, the server's message and its reason code). A write refused
+   * because the project is archived (409 `project_archived`) is also announced (src/lib/projectEvents.ts),
+   * so an open project page switches to its read-only view.
+   */
+  private async failure(response: Response, fallbackMessage: string): Promise<ApiError> {
+    const error = await response.json().catch(() => ({}));
+    const code = typeof error?.code === 'string' ? error.code : undefined;
+    if (response.status === 409 && code === PROJECT_ARCHIVED_CODE) emitProjectArchivedRefusal();
+    return new ApiError(typeof error?.message === 'string' && error.message ? error.message : fallbackMessage, response.status, code);
   }
 
   /** The session is over (refresh refused, or still 401 after refreshing): forget it and go to sign in. */
@@ -278,8 +290,12 @@ class ApiClient {
   }
 
   // Projects
-  async getProjects() {
-    return this.request<Project[]>('/projects');
+  /**
+   * The organisation's projects. Active ones by default (archived projects are left out); `{ archived: true }`
+   * lists the archived ones only.
+   */
+  async getProjects(options: ProjectListOptions = {}) {
+    return this.request<Project[]>(options.archived === true ? '/projects?archived=true' : '/projects');
   }
 
   async getProject(id: string) {
@@ -292,6 +308,34 @@ class ApiClient {
 
   async updateProject(id: string, data: ProjectUpdateInput) {
     return this.request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+  }
+
+  /**
+   * Org admins and platform admins: hides the project from the active list and makes it read-only; nothing is
+   * deleted. 409 `project_already_archived` when it is archived already.
+   */
+  async archiveProject(id: string) {
+    return this.request<Project>(`/projects/${encodeURIComponent(id)}/archive`, { method: 'POST' });
+  }
+
+  /**
+   * Org admins and platform admins: brings an archived project back with the status it had before (the
+   * server reads it from the audit log). 409 `project_not_archived` when it is not archived.
+   */
+  async restoreProject(id: string) {
+    return this.request<Project>(`/projects/${encodeURIComponent(id)}/restore`, { method: 'POST' });
+  }
+
+  /**
+   * Org admins and platform admins: deletes the project and everything in it for good, its document files
+   * included; the server records it in the audit log. `confirmName` must be the project's exact name (the
+   * server compares both trimmed, case-sensitive): 400 `confirm_name_mismatch` otherwise.
+   */
+  async deleteProject(id: string, confirmName: string) {
+    return this.request<ProjectDeleteResponse>(`/projects/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ confirmName }),
+    });
   }
 
   // Dashboard (mounted at /api/dashboard in the backend's src/app.ts)
@@ -426,10 +470,7 @@ class ApiClient {
       headers: { Authorization: `Bearer ${token}` },
       body: formData,
     });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new ApiError(error.message || 'Upload failed', response.status);
-    }
+    if (!response.ok) throw await this.failure(response, 'Upload failed');
     return response.json();
   }
 
@@ -488,10 +529,7 @@ class ApiClient {
       headers: { Authorization: `Bearer ${token}` },
       body: formData,
     });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new ApiError(error.message || 'Upload failed', response.status);
-    }
+    if (!response.ok) throw await this.failure(response, 'Upload failed');
     return response.json();
   }
 

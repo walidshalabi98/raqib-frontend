@@ -116,9 +116,10 @@ function AiCodedFindings({ sentiment, themes, lang }: { sentiment: string | null
 
 /**
  * The project's qualitative entries. `readOnly` (donor viewers) hides adding, uploading and AI
- * coding and shows each entry's coded findings only.
+ * coding and shows each entry's coded findings only. `canManage` false (an archived project) keeps the
+ * staff view of the entries but hides adding, uploading and AI coding.
  */
-export function QualitativeCards({ projectId, readOnly = false }: { projectId: string; readOnly?: boolean }) {
+export function QualitativeCards({ projectId, readOnly = false, canManage = !readOnly }: { projectId: string; readOnly?: boolean; canManage?: boolean }) {
   const queryClient = useQueryClient();
   const lang = useUserLanguage();
   const { t } = useTranslation(undefined, { lng: lang });
@@ -213,7 +214,7 @@ export function QualitativeCards({ projectId, readOnly = false }: { projectId: s
           <span>{t("access.qualitative.donorNote")}</span>
         </p>
       )}
-      {!readOnly && (
+      {!readOnly && canManage && (
       <div className="flex justify-end">
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
@@ -313,7 +314,7 @@ export function QualitativeCards({ projectId, readOnly = false }: { projectId: s
         <div className="card-surface p-8 text-center text-muted-foreground">
           <MessageSquare className="h-10 w-10 mx-auto mb-3 opacity-30" />
           <p>No qualitative data entries yet.</p>
-          <p className="text-sm mt-1">Add interview transcripts, FGD notes, or upload documents for AI analysis.</p>
+          {canManage && <p className="text-sm mt-1">Add interview transcripts, FGD notes, or upload documents for AI analysis.</p>}
         </div>
       ) : (
         entries.map((entry: any) => {
@@ -339,7 +340,7 @@ export function QualitativeCards({ projectId, readOnly = false }: { projectId: s
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {!entry.themes?.length && (
+                  {canManage && !entry.themes?.length && (
                     <Button variant="ghost" size="sm" className="text-xs" onClick={(e) => handleAiCode(entry.id, e)}>
                       <Brain aria-hidden="true" className="h-3 w-3 me-1" /> AI Analyze
                     </Button>

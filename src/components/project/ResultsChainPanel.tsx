@@ -47,12 +47,13 @@ import { FieldMessage } from "@/components/common/FieldMessage";
 /**
  * The framework's results chain (impact → outcome → output → activity) as an
  * indented tree with add, edit and delete. Levels offered follow the hierarchy
- * rule; a result with child results cannot be deleted.
+ * rule; a result with child results cannot be deleted. `readOnly` (donor viewers,
+ * or an archived project) shows the tree without any of those controls.
  */
 
 type Editing = { mode: "create"; parent: ResultNode | null } | { mode: "edit"; node: ResultNode };
 
-export function ResultsChainPanel({ projectId, frameworkId }: { projectId: string; frameworkId: string }) {
+export function ResultsChainPanel({ projectId, frameworkId, readOnly = false }: { projectId: string; frameworkId: string; readOnly?: boolean }) {
   const userLang = useUserLanguage();
   const [chosenLang, setChosenLang] = useState<AppLanguage | null>(null);
   const lang = chosenLang ?? userLang;
@@ -102,10 +103,12 @@ export function ResultsChainPanel({ projectId, frameworkId }: { projectId: strin
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <LanguageToggle value={lang} onChange={setChosenLang} />
-              <Button size="sm" variant="outline" onClick={() => setEditing({ mode: "create", parent: null })}>
-                <Plus aria-hidden="true" className="me-1.5 h-4 w-4" />
-                {t("results.add")}
-              </Button>
+              {!readOnly && (
+                <Button size="sm" variant="outline" onClick={() => setEditing({ mode: "create", parent: null })}>
+                  <Plus aria-hidden="true" className="me-1.5 h-4 w-4" />
+                  {t("results.add")}
+                </Button>
+              )}
             </div>
           </div>
 
@@ -123,11 +126,13 @@ export function ResultsChainPanel({ projectId, frameworkId }: { projectId: strin
             </div>
           ) : nodes.length === 0 ? (
             <div className="flex flex-wrap items-center gap-3 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-              <span>{t("results.empty")}</span>
-              <Button size="sm" onClick={() => setEditing({ mode: "create", parent: null })}>
-                <Plus aria-hidden="true" className="me-1.5 h-4 w-4" />
-                {t("results.add")}
-              </Button>
+              <span>{t(readOnly ? "results.emptyReadOnly" : "results.empty")}</span>
+              {!readOnly && (
+                <Button size="sm" onClick={() => setEditing({ mode: "create", parent: null })}>
+                  <Plus aria-hidden="true" className="me-1.5 h-4 w-4" />
+                  {t("results.add")}
+                </Button>
+              )}
             </div>
           ) : (
             <ResultTreeList
@@ -136,6 +141,7 @@ export function ResultsChainPanel({ projectId, frameworkId }: { projectId: strin
               lang={lang}
               t={t}
               editButtonId={editButtonId}
+              readOnly={readOnly}
               onAddChild={(parent) => setEditing({ mode: "create", parent })}
               onEdit={(node) => setEditing({ mode: "edit", node })}
               onDelete={(node, opener) => { deleteOpener.current = opener; setDeleting(node); }}
@@ -144,7 +150,7 @@ export function ResultsChainPanel({ projectId, frameworkId }: { projectId: strin
         </TooltipProvider>
       </DirectionProvider>
 
-      {editing && (
+      {editing && !readOnly && (
         <ResultNodeDialog
           key={editing.mode === "edit" ? editing.node.id : `new-${editing.parent?.id ?? "top"}`}
           editing={editing}
@@ -209,6 +215,7 @@ function ResultTreeList({
   t,
   editButtonId,
   nested = false,
+  readOnly = false,
   onAddChild,
   onEdit,
   onDelete,
@@ -219,6 +226,8 @@ function ResultTreeList({
   t: T;
   editButtonId: (node: ResultNode) => string;
   nested?: boolean;
+  /** No add, edit or delete buttons (donor viewers, archived projects). */
+  readOnly?: boolean;
   onAddChild: (parent: ResultNode) => void;
   onEdit: (node: ResultNode) => void;
   /** `opener` is the delete button, to return focus to when the confirmation is cancelled. */
@@ -244,6 +253,7 @@ function ResultTreeList({
               </div>
               <div className="flex shrink-0 items-center justify-end gap-2">
                 <span className="text-xs text-muted-foreground">{t("results.indicatorCount", { count: indicatorCount })}</span>
+                {!readOnly && (
                 <span className="flex shrink-0 items-center">
                   {canHaveChildren && (
                     <Button type="button" variant="ghost" size="icon" className="h-11 w-11 sm:h-8 sm:w-8"
@@ -278,10 +288,11 @@ function ResultTreeList({
                   )}
                   {blocked && <span id={whyId} className="sr-only">{t("results.deleteDisabled", { code: node.code })}</span>}
                 </span>
+                )}
               </div>
             </div>
             {children.length > 0 && (
-              <ResultTreeList items={children} nodes={nodes} lang={lang} t={t} editButtonId={editButtonId} nested
+              <ResultTreeList items={children} nodes={nodes} lang={lang} t={t} editButtonId={editButtonId} nested readOnly={readOnly}
                 onAddChild={onAddChild} onEdit={onEdit} onDelete={onDelete} />
             )}
           </li>

@@ -92,7 +92,8 @@ export function AppRoutes() {
         <Route
           path="/wizard/:id"
           element={
-            // AI framework generation is for org staff; donor viewers go back to the project.
+            // AI framework generation is for org staff; donor viewers go back to the project, and so does
+            // everyone while the project is archived (read-only; the wizard checks, in its own chunk).
             <RequireCapability capability="ai.run" redirectTo={(p) => `/projects/${encodeURIComponent(p.id ?? "")}`}>
               <AIWizard />
             </RequireCapability>

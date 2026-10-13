@@ -12,7 +12,8 @@
     "refresh": "Refresh"
   },
   "errors": {
-    "forbidden": "You don't have permission to do this. Ask your organisation's admin if you need access."
+    "forbidden": "You don't have permission to do this. Ask your organisation's admin if you need access.",
+    "projectArchived": "This project is archived, so it is read-only. An organisation admin can restore it to make changes."
   },
   "access": {
     "readOnlyBanner": "You have read-only access to this project. Project staff add and change its data.",
@@ -135,7 +136,23 @@
     "noData": "There is no data to export yet."
   },
   "projectDetail": {
-    "backToProjects": "Back to projects"
+    "backToProjects": "Back to projects",
+    "sections": "Project sections",
+    "tab": {
+      "overview": "Overview",
+      "me-framework": "M&E Framework",
+      "dashboard": "Dashboard",
+      "risks": "Risk Alerts",
+      "assessments": "Assessments",
+      "reports": "Reports",
+      "documents": "Documents",
+      "qualitative": "Qualitative",
+      "export": "Export"
+    },
+    "archivedTitle": "This project is archived.",
+    "archivedBody": "It is read-only: no one can add or change its data, and nothing in it was deleted.",
+    "archivedAskAdmin": "An organisation admin can restore it.",
+    "loadError": "We couldn't load this project. It may have been deleted, or the connection dropped."
   },
   "layout": {
     "openMenu": "Open the navigation menu",
@@ -449,12 +466,15 @@
       "deleted": "Result deleted",
       "saveFailed": "We couldn't save the result.",
       "deleteFailed": "We couldn't delete the result."
-    }
+    },
+    "emptyReadOnly": "No results chain yet."
   },
   "indicatorTable": {
     "addIndicator": "Add indicator",
     "edit": "Edit",
-    "editIndicator": "Edit indicator: {{name}}"
+    "editIndicator": "Edit indicator: {{name}}",
+    "empty": "No indicators yet. Add one above.",
+    "emptyReadOnly": "No indicators yet."
   },
   "projects": {
     "allSectors": "All sectors",
@@ -464,7 +484,26 @@
     "viewGrid": "Show as cards",
     "viewList": "Show as a list",
     "search": "Search projects",
-    "searchPlaceholder": "Search projects…"
+    "searchPlaceholder": "Search projects…",
+    "title": "Projects",
+    "views": "Which projects to show",
+    "viewActive": "Active projects",
+    "viewArchived": "Archived projects",
+    "allStatuses": "All statuses",
+    "archivedNote": "Archived projects are read-only and nothing in them was deleted. Open one to read it; an organisation admin can restore it.",
+    "emptyActive": "No active projects yet. Your organisation's admin creates projects.",
+    "emptyActiveAdmin": "No active projects yet. Create one with New project.",
+    "emptyArchived": "No archived projects. When an organisation admin archives a project, it moves here, read-only, and can be restored.",
+    "noMatches": "No projects match your search or filters.",
+    "loading": "Loading projects…",
+    "loadError": "We couldn't load the projects.",
+    "column": {
+      "project": "Project",
+      "sector": "Sector",
+      "donor": "Donor",
+      "status": "Status"
+    },
+    "deleted": "“{{name}}” and everything in it were deleted permanently."
   },
   "reportType": {
     "assessment_report": "Assessment report",
@@ -672,7 +711,8 @@
     "toast": {
       "uploaded": "Document uploaded. Raqib is reading it now.",
       "uploadFailed": "We couldn't upload the document."
-    }
+    },
+    "emptyNoUpload": "No documents in this project."
   },
   "assessments": {
     "failedTitle": "AI generation failed"
@@ -850,6 +890,73 @@
       "assessment": "Assessment status updates",
       "report": "Report generation notifications",
       "digest": "Team activity digest"
+    }
+  },
+  "projectStatus": {
+    "setup": "Setup",
+    "framework_review": "Framework review",
+    "active": "Active",
+    "completed": "Completed",
+    "archived": "Archived"
+  },
+  "projectActions": {
+    "menu": "Project actions",
+    "archive": "Archive project",
+    "restore": "Restore project",
+    "restoring": "Restoring…",
+    "delete": "Delete permanently",
+    "toast": {
+      "archived": "“{{name}}” is archived. It is read-only until it is restored.",
+      "restored": "“{{name}}” is restored. You can make changes again."
+    },
+    "errors": {
+      "notFound": "This project no longer exists. It may have been deleted already.",
+      "notArchived": "This project is not archived any more.",
+      "restoreFailed": "We couldn't restore the project. Try again."
+    },
+    "archiveDialog": {
+      "title": "Archive “{{name}}”?",
+      "intro": "Archive projects that have ended. Donors may audit them for years, so nothing is deleted.",
+      "pointHidden": "It leaves the active projects list and appears under Archived projects.",
+      "pointReadOnly": "It becomes read-only for everyone: no new data, documents or reports, and no changes.",
+      "pointKept": "Nothing is deleted: its framework, data, documents and reports stay as they are.",
+      "pointRestore": "An organisation admin can restore it at any time.",
+      "confirm": "Archive project",
+      "pending": "Archiving…",
+      "errors": {
+        "alreadyArchived": "This project is already archived.",
+        "failed": "We couldn't archive the project. Try again."
+      }
+    },
+    "deleteDialog": {
+      "title": "Delete “{{name}}” permanently?",
+      "warning": "This cannot be undone. The project and everything in it will be deleted for good, document files included.",
+      "advice": "Delete only test projects or projects created by mistake. Archive real projects instead: donors may audit them for years.",
+      "archiveInstead": "Archive instead",
+      "listTitle": "What will be deleted",
+      "count": "{{label}}: {{count}}",
+      "item": {
+        "framework": "The M&E framework (all versions) and its results chain",
+        "indicators": "Indicators in the current framework",
+        "dataPoints": "Data points",
+        "qualitativeEntries": "Qualitative entries",
+        "assessments": "Assessments",
+        "reports": "Reports, published ones included",
+        "documents": "Documents and their stored files",
+        "beneficiaries": "Beneficiary records and the services recorded for them",
+        "notifications": "Notifications about this project"
+      },
+      "auditNote": "Raqib records the deletion in the audit log: who deleted the project, when, and how much was removed.",
+      "nameToType": "Project name:",
+      "nameLabel": "Type the project name to confirm",
+      "nameHint": "Type it exactly as shown, capital letters included. The delete button turns on when the name matches.",
+      "matches": "The name matches. You can delete the project.",
+      "confirm": "Delete permanently",
+      "pending": "Deleting…",
+      "errors": {
+        "mismatch": "The name you typed does not match the project name. Type it exactly as shown.",
+        "failed": "We couldn't delete the project. Try again."
+      }
     }
   }
 }

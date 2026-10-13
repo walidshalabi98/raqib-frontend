@@ -12,6 +12,7 @@ import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { DONOR_TYPES, REPORT_TYPES } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
 import { isolate } from "@/lib/reports";
+import { isProjectArchived } from "@/lib/apiError";
 import { emptyReportForm, MAX_REPORT_TITLE, reportFormSchema, reportFormToPayload, type ReportFormValues } from "@/lib/reportForm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,8 +53,8 @@ export function GenerateReportDialog({ projectId }: { projectId: string }) {
       setOpen(false);
       reset(emptyReportForm());
     },
-    onError: () => {
-      toast.error(t("reports.generate.toastFailed"));
+    onError: (err) => {
+      toast.error(t(isProjectArchived(err) ? "errors.projectArchived" : "reports.generate.toastFailed"));
     },
   });
 

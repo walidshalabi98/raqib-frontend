@@ -12,6 +12,7 @@ import {
   INDICATOR_LEVELS,
   INDICATOR_STATUSES,
   PARSING_STATUSES,
+  PROJECT_STATUSES,
   PROVENANCES,
   SECTORS,
 } from "@/lib/constants";
@@ -42,6 +43,7 @@ describe("translations", () => {
       ["disaggregation", DISAGGREGATION_SUGGESTIONS],
       ["documentType", DOCUMENT_FILE_TYPES],
       ["parsingStatus", PARSING_STATUSES],
+      ["projectStatus", PROJECT_STATUSES],
     ];
     for (const [group, values] of groups) {
       for (const value of values) {

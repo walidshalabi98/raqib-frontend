@@ -12,6 +12,7 @@ import { errorMessage } from "@/lib/utils";
 import { dirFor } from "@/i18n";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { PersonalDataWarning } from "@/components/common/PersonalDataWarning";
+import { RequireWritableProject } from "@/components/RequireWritableProject";
 import type { Indicator } from "@/types/api";
 
 const steps = ["Upload Documents", "AI Processing", "Review Framework", "Summary"];
@@ -33,7 +34,20 @@ const METHOD_LABELS: Record<string, string> = {
   secondary_data: "Secondary Data",
 };
 
+/**
+ * The AI framework wizard. It changes the project (uploads, framework generation, approvals), so an archived
+ * project sends the user back to its read-only page instead (RequireWritableProject). Kept here, in the page's
+ * own chunk, so the guard's translations stay out of the main bundle.
+ */
 export default function AIWizard() {
+  return (
+    <RequireWritableProject>
+      <AIWizardSteps />
+    </RequireWritableProject>
+  );
+}
+
+function AIWizardSteps() {
   const navigate = useNavigate();
   const { id: projectId } = useParams();
   const queryClient = useQueryClient();

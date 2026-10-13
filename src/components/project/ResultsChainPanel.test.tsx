@@ -190,3 +190,25 @@ describe("ResultsChainPanel", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 });
+
+describe("ResultsChainPanel read-only", () => {
+  it("shows the tree without add, edit or delete buttons", async () => {
+    renderWithClient(<ResultsChainPanel projectId="p-1" frameworkId="fw-1" readOnly />);
+    expect(await screen.findByText("Reduced food insecurity")).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(4);
+    expect(screen.queryByRole("button", { name: "Add result" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Add a result under / })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Edit / })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Delete / })).not.toBeInTheDocument();
+    // The language toggle is reading, so it stays.
+    expect(screen.getByRole("group")).toBeInTheDocument();
+  });
+
+  it("says there is no results chain yet, without offering to add one", async () => {
+    vi.mocked(api.getFrameworkResults).mockResolvedValue([]);
+    renderWithClient(<ResultsChainPanel projectId="p-1" frameworkId="fw-1" readOnly />);
+    expect(await screen.findByText("No results chain yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add result" })).not.toBeInTheDocument();
+  });
+});
+

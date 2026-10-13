@@ -14,7 +14,7 @@ export const USER_ROLES: readonly UserRole[] = Object.freeze(["platform_admin", 
 /** May write, run AI features and see beneficiary-level personal data. */
 export const STAFF_ROLES: readonly UserRole[] = Object.freeze(["org_admin", "platform_admin", "me_officer"] as const);
 
-/** Organisation settings, users, approvals (reports published to donors included), project create/archive. */
+/** Organisation settings, users, approvals (reports published to donors included), project create, archive, restore and delete. */
 export const ADMIN_ROLES: readonly UserRole[] = Object.freeze(["org_admin", "platform_admin"] as const);
 
 const PLATFORM_ROLES: readonly UserRole[] = Object.freeze(["platform_admin"] as const);
@@ -22,7 +22,10 @@ const PLATFORM_ROLES: readonly UserRole[] = Object.freeze(["platform_admin"] as 
 export type Capability =
   | "project.create"
   | "project.edit"
+  /** Archive a project and restore it (POST /api/projects/:id/archive and /restore). */
   | "project.archive"
+  /** Delete a project and everything in it for good, after typing its name (DELETE /api/projects/:id). */
+  | "project.delete"
   | "framework.edit"
   | "framework.approve"
   | "data.enter"
@@ -55,6 +58,7 @@ export const CAPABILITY_ROLES: Readonly<Record<Capability, readonly UserRole[]>>
   "project.create": ADMIN_ROLES,
   "project.edit": STAFF_ROLES,
   "project.archive": ADMIN_ROLES,
+  "project.delete": ADMIN_ROLES,
   "framework.edit": STAFF_ROLES,
   "framework.approve": ADMIN_ROLES,
   "data.enter": STAFF_ROLES,
@@ -73,6 +77,30 @@ export const CAPABILITY_ROLES: Readonly<Record<Capability, readonly UserRole[]>>
   "users.resetPassword": ADMIN_ROLES,
   "templates.manage": PLATFORM_ROLES,
 });
+
+/**
+ * Capabilities that change a project's data. While a project is archived the server refuses every write to it
+ * (409 `project_archived`) except restoring and deleting it, so these are off for everyone on an archived project
+ * (`projectAccess` in src/lib/projectAccess.ts). The others only read (seeing records, exports, AI output and
+ * the AI risk analysis, a GET) or manage the project itself (archive, restore, delete).
+ */
+export const PROJECT_WRITE_CAPABILITIES: readonly Capability[] = Object.freeze([
+  "project.edit",
+  "framework.edit",
+  "framework.approve",
+  "data.enter",
+  "document.manage",
+  "qualitative.manage",
+  "assessment.request",
+  "assessment.update",
+  "report.generate",
+  "report.publish",
+] as const);
+
+/** True when `capability` changes a project's data (off while the project is archived). */
+export function isProjectWrite(capability: Capability): boolean {
+  return PROJECT_WRITE_CAPABILITIES.includes(capability);
+}
 
 /** True only for one of the four roles the backend knows. */
 export function isUserRole(value: unknown): value is UserRole {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import i18n from "@/i18n";
-import { ApiError, apiErrorText, forbiddenText, isForbidden, setErrorTranslator } from "@/lib/apiError";
+import { ApiError, apiErrorText, forbiddenText, isForbidden, isProjectArchived, setErrorTranslator } from "@/lib/apiError";
 import { errorMessage } from "@/lib/utils";
 
 const FORBIDDEN = "You don't have permission to do this. Ask your organisation's admin if you need access.";
@@ -49,5 +49,26 @@ describe("errorMessage", () => {
     expect(errorMessage(new ApiError("Project not found", 404), "Failed")).toBe("Project not found");
     expect(errorMessage(new Error(""), "Failed")).toBe("Failed");
     expect(errorMessage("text", "Failed")).toBe("Failed");
+  });
+});
+
+describe("writes to an archived project (409 project_archived)", () => {
+  const ARCHIVED = "This project is archived, so it is read-only. An organisation admin can restore it to make changes.";
+  const ARCHIVED_AR = "هذا المشروع مؤرشف، لذا فهو متاح للاطلاع فقط. يمكن لمسؤول المؤسسة استعادته لإجراء تغييرات.";
+  const refusal = () => new ApiError("This project is archived. Restore it to make changes.", 409, "project_archived");
+
+  it("is recognised by its status and code, not by other conflicts", () => {
+    expect(isProjectArchived(refusal())).toBe(true);
+    expect(isProjectArchived({ status: 409, code: "project_archived" })).toBe(true);
+    expect(isProjectArchived(new ApiError("Conflict", 409))).toBe(false);
+    expect(isProjectArchived(new ApiError("Already", 409, "project_already_archived"))).toBe(false);
+    expect(isProjectArchived(new ApiError("Odd", 400, "project_archived"))).toBe(false);
+  });
+
+  it("is explained in the user's language wherever a screen shows a failed action", () => {
+    expect(apiErrorText(i18n.getFixedT("en"), refusal(), "exportPanel.failed")).toBe(ARCHIVED);
+    expect(apiErrorText(i18n.getFixedT("ar"), refusal(), "exportPanel.failed")).toBe(ARCHIVED_AR);
+    expect(errorMessage(refusal(), "Failed")).toBe(ARCHIVED);
+    expect(errorMessage(refusal(), "Failed", "ar")).toBe(ARCHIVED_AR);
   });
 });

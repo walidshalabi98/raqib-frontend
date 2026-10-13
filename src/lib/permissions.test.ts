@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ADMIN_ROLES, CAPABILITY_ROLES, STAFF_ROLES, USER_ROLES, can, canResetPasswordOf, isUserRole, type Capability } from "@/lib/permissions";
+import { ADMIN_ROLES, CAPABILITY_ROLES, PROJECT_WRITE_CAPABILITIES, STAFF_ROLES, USER_ROLES, can, canResetPasswordOf, isProjectWrite, isUserRole, type Capability } from "@/lib/permissions";
 
 /**
  * The backend role matrix (backend docs/SECURITY_SETUP.md §8, tests/roles.test.ts), written out
@@ -9,6 +9,7 @@ const EXPECTED: Record<Capability, string[]> = {
   "project.create": ["org_admin", "platform_admin"],
   "project.edit": ["me_officer", "org_admin", "platform_admin"],
   "project.archive": ["org_admin", "platform_admin"],
+  "project.delete": ["org_admin", "platform_admin"],
   "framework.edit": ["me_officer", "org_admin", "platform_admin"],
   "framework.approve": ["org_admin", "platform_admin"],
   "data.enter": ["me_officer", "org_admin", "platform_admin"],
@@ -55,6 +56,7 @@ describe("permissions", () => {
     expect(can("me_officer", "beneficiary.records")).toBe(true);
     expect(can("me_officer", "project.create")).toBe(false);
     expect(can("me_officer", "project.archive")).toBe(false);
+    expect(can("me_officer", "project.delete")).toBe(false);
     expect(can("me_officer", "framework.approve")).toBe(false);
     expect(can("me_officer", "users.manage")).toBe(false);
     expect(can("me_officer", "report.generate")).toBe(true);
@@ -92,5 +94,38 @@ describe("permissions", () => {
     expect(canResetPasswordOf({ id: "u-7", role: "donor_viewer" }, { id: "u-2", role: "donor_viewer" })).toBe(false);
     expect(canResetPasswordOf({ id: "u-8", role: "" }, { id: "u-2", role: "donor_viewer" })).toBe(false);
     expect(canResetPasswordOf(null, { id: "u-2", role: "donor_viewer" })).toBe(false);
+  });
+});
+
+describe("archive and delete (owner decision of 13 October 2026)", () => {
+  it("lets org admins and platform admins archive, restore and delete; nobody else", () => {
+    for (const capability of ["project.archive", "project.delete"] as const) {
+      expect(can("org_admin", capability)).toBe(true);
+      expect(can("platform_admin", capability)).toBe(true);
+      expect(can("me_officer", capability)).toBe(false);
+      expect(can("donor_viewer", capability)).toBe(false);
+      expect(can(undefined, capability)).toBe(false);
+    }
+  });
+
+  it("names every capability that writes project data, and only those", () => {
+    expect([...PROJECT_WRITE_CAPABILITIES].sort()).toEqual([
+      "assessment.request",
+      "assessment.update",
+      "data.enter",
+      "document.manage",
+      "framework.approve",
+      "framework.edit",
+      "project.edit",
+      "qualitative.manage",
+      "report.generate",
+      "report.publish",
+    ]);
+    expect(Object.isFrozen(PROJECT_WRITE_CAPABILITIES)).toBe(true);
+    // Reading, exports, the AI risk analysis (a GET) and the archive actions themselves stay available.
+    for (const capability of ["ai.review", "ai.run", "export.personalData", "beneficiary.records", "project.archive", "project.delete"] as const) {
+      expect(isProjectWrite(capability), capability).toBe(false);
+    }
+    for (const capability of PROJECT_WRITE_CAPABILITIES) expect(isProjectWrite(capability)).toBe(true);
   });
 });
