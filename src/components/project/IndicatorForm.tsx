@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { AlertCircle, AlertTriangle, CheckCircle2, Clock, Info, Loader2, Plus, Save, Sparkles, Trash2, X } from "lucide-react";
 import { api } from "@/services/api";
-import type { FrameworkStatus, Indicator, IndicatorInput, ResultNode } from "@/types/api";
+import type { AcceptKpiSuggestionResponse, FrameworkStatus, Indicator, IndicatorInput, KpiSuggestion, ResultNode } from "@/types/api";
 import { dirFor, type AppLanguage } from "@/i18n";
 import {
   COLLECTION_METHODS,
@@ -56,11 +56,13 @@ import { FieldMessage } from "@/components/common/FieldMessage";
  * used to add and to edit indicators. Sections are an accordion (keyboard
  * accessible); every input has a visible label; errors are announced.
  * On edit only the changed fields are sent, and only problems in changed
- * fields block saving.
+ * fields block saving. Accept mode (KPI Assistant, Phase 4) edits a suggestion's
+ * draft before accepting it; until E8 completes it, it behaves like create.
  */
 
 export interface IndicatorFormProps {
-  mode: "create" | "edit";
+  /** accept: Edit & accept of a KPI suggestion (design section 9.5); behaves like create until finished. */
+  mode: "create" | "edit" | "accept";
   projectId: string;
   frameworkId: string;
   /** The indicator being edited (edit mode). */
@@ -73,7 +75,11 @@ export interface IndicatorFormProps {
   lang: AppLanguage;
   /** Pre-selected result when adding an indicator under a result. */
   defaultResultId?: string;
+  /** The suggestion being accepted (accept mode): the form starts from its draft. */
+  suggestion?: KpiSuggestion;
   onSaved: (indicator: Indicator) => void;
+  /** Accept mode: the accept response (indicator, suggestion, warnings such as donor_cap_exceeded). */
+  onAccepted?: (response: AcceptKpiSuggestionResponse) => void;
   onCancel: () => void;
 }
 
@@ -95,9 +101,14 @@ export function IndicatorForm({
   resultNodes,
   lang,
   defaultResultId,
+  suggestion,
   onSaved,
+  onAccepted: _onAccepted,
   onCancel,
 }: IndicatorFormProps) {
+  // TODO(E8): accept mode starts from inputToFormValues(suggestion.draft), locks the level, submits
+  // acceptEdits(draft, values) through useAcceptKpiSuggestion and calls onAccepted (design section 9.5).
+  const createLike = mode !== "edit";
   const { t } = useTranslation(undefined, { lng: lang });
   const queryClient = useQueryClient();
   const baseId = useId();
@@ -109,7 +120,7 @@ export function IndicatorForm({
   );
   const [values, setValues] = useState<IndicatorFormValues>(() => {
     if (initialValues) return initialValues;
-    const result = resultNodes.find((n) => n.id === defaultResultId);
+    const result = resultNodes.find((n) => n.id === (defaultResultId ?? suggestion?.draft.resultId));
     return emptyIndicatorForm(result ? { resultId: result.id, level: result.level } : {});
   });
   const [submitted, setSubmitted] = useState(false);
@@ -237,11 +248,11 @@ export function IndicatorForm({
   // ----------------------------------------------------------------- save
   const mutation = useMutation({
     mutationFn: (payload: IndicatorInput) =>
-      mode === "create"
+      createLike
         ? api.addIndicatorToFramework(frameworkId, payload)
         : api.updateIndicator((indicator as Indicator).id, payload),
     onSuccess: (saved) => {
-      toast.success(t(mode === "create" ? "indicatorForm.toast.created" : "indicatorForm.toast.updated"));
+      toast.success(t(createLike ? "indicatorForm.toast.created" : "indicatorForm.toast.updated"));
       void invalidateFrameworkData(queryClient, { projectId, frameworkId });
       onSaved(saved);
     },
@@ -265,7 +276,7 @@ export function IndicatorForm({
       return;
     }
 
-    if (mode === "create") {
+    if (createLike) {
       mutation.mutate(buildCreatePayload(values));
       return;
     }
@@ -785,7 +796,7 @@ export function IndicatorForm({
           {saving ? (
             <><Loader2 aria-hidden="true" className="me-2 h-4 w-4 animate-spin" />{t("indicatorForm.actions.saving")}</>
           ) : (
-            <><Save aria-hidden="true" className="me-1.5 h-4 w-4" />{t(mode === "create" ? "indicatorForm.actions.create" : "indicatorForm.actions.save")}</>
+            <><Save aria-hidden="true" className="me-1.5 h-4 w-4" />{t(createLike ? "indicatorForm.actions.create" : "indicatorForm.actions.save")}</>
           )}
         </Button>
       </div>

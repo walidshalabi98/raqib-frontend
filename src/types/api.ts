@@ -570,3 +570,299 @@ export type GenerationStatus =
   | { frameworkId: string; status: "completed"; progress?: string; framework?: Framework }
   /** The run failed or was interrupted; `message` is safe to show and says what to do. */
   | { frameworkId: string; status: "failed"; message: string };
+
+// ------------------------------------------------------- KPI Assistant (Phase 4)
+// Mirrors raqib-backend src/services/kpi/types.ts (API DTOs) and the Prisma enums of the KPI tables
+// (knowledge/kpi-assistant-spec.md §A5–A7). Keep in sync with the backend.
+
+/** Prisma enum SuggestionStatus. */
+export type SuggestionStatus = "pending" | "accepted" | "edited_accepted" | "rejected" | "expired";
+
+/** Prisma enum SuggestionRejectReason (the reject chips). */
+export type SuggestionRejectReason =
+  | "not_relevant"
+  | "too_costly_to_measure"
+  | "donor_not_required"
+  | "duplicate"
+  | "wording"
+  | "other";
+
+/** Results the KPI Assistant suggests indicators for (never activities). */
+export type SuggestableLevel = "impact" | "outcome" | "output";
+
+export type KpiScopeType = "framework" | "result" | "alternatives";
+
+/** Progress step of a run; the UI shows context, retrieval, model and validation. */
+export type KpiRunStep = "context" | "retrieval" | "model" | "validation" | "saving" | "done";
+
+/** Why a run failed (KpiRun.errorCode). `interrupted` also covers a run that stopped sending heartbeats. */
+export type KpiErrorCode =
+  | "ai_not_configured"
+  | "ai_refused"
+  | "ai_unavailable"
+  | "ai_invalid_output"
+  | "interrupted"
+  | "stale"
+  | "internal";
+
+/** Request-level error codes of the KPI routes (ApiError.code). */
+export type KpiRequestErrorCode =
+  | "ai_not_configured"
+  | "run_in_progress"
+  | "no_framework"
+  | "not_suggestable"
+  | "already_decided"
+  | "stale"
+  | "nothing_to_suggest"
+  | "too_many_results"
+  | "budget_reached"
+  | "project_archived"
+  | "duplicate";
+
+/** Quality badge: score ≥ 85 strong, 65–84 review, < 65 weak. */
+export type QualityBand = "strong" | "review" | "weak";
+
+/** Where a suggestion came from: the model, or appended by Raqib (accountability indicator for humanitarian projects). */
+export type SuggestionOrigin = "model" | "appended_accountability";
+
+export type KpiWarningCode =
+  // per suggestion
+  | "library_id_unknown"
+  | "custom_reason_missing"
+  | "target_in_name"
+  | "double_barrelled"
+  | "percent_without_calculation"
+  | "sex_keys_from_library"
+  | "sex_added"
+  | "baseline_not_found"
+  | "target_not_found"
+  | "standard_threshold_not_found"
+  | "target_method_default"
+  | "output_survey_method"
+  | "impact_not_secondary"
+  | "arabic_name_missing"
+  | "generic_means_of_verification"
+  | "figures_unverified"
+  | "level_adjusted"
+  | "arabic_name_from_library"
+  // framework (run) level
+  | "model_note"
+  | "unknown_result"
+  | "rejected_library_dropped"
+  | "duplicate_in_run"
+  | "near_duplicate"
+  | "result_cap"
+  | "accountability_added"
+  | "accountability_missing"
+  | "result_failed"
+  | "keyword_fallback"
+  // accept response
+  | "donor_cap_exceeded";
+
+/** A validation note. Translate by `code` with `params`; `message` is the English fallback (model_note holds model text). */
+export interface KpiWarning {
+  code: KpiWarningCode;
+  severity: "warning" | "info";
+  message: string;
+  params: Record<string, string | number>;
+  /** Points taken off the quality score (0 for notes). */
+  penalty: number;
+}
+
+/**
+ * What accepting a suggestion creates, before edits (IndicatorInput-compatible; dates YYYY-MM-DD). Fields the AI
+ * does not propose hold "To be confirmed by the M&E officer"; baselineDate is null and intermediateTargets [].
+ */
+export interface IndicatorDraft extends IndicatorInput {
+  indicatorText: string;
+  indicatorTextAr: string | null;
+  level: SuggestableLevel;
+  resultId: string;
+  libraryId: string | null;
+  standardReferenceCode: string | null;
+  definition: string;
+  unit: string;
+  calculation: IndicatorCalculation | null;
+  direction: IndicatorDirection;
+  disaggregation: string[];
+  dataCollectionMethod: CollectionMethod;
+  frequency: Frequency;
+  meansOfVerification: string;
+  baselineValue: string | null;
+  baselineDate: string | null;
+  baselineMethod: string;
+  targetValue: string | null;
+  targetJustification: string;
+  intermediateTargets: IntermediateTarget[];
+  assumptions: string;
+  responsibility: string;
+  /** Project start date; editable on accept. */
+  startDate: string | null;
+  /** Project end date (the date the target refers to); editable on accept. */
+  endDate: string | null;
+  aiRationale: string | null;
+}
+
+/** The validated suggestion as shown on a card (KpiSuggestion.suggestion). Model free text is English. */
+export interface KpiSuggestionPayload {
+  customReason: string;
+  name: string;
+  nameAr: string;
+  definition: string;
+  unit: string;
+  numerator: string;
+  denominator: string;
+  direction: IndicatorDirection;
+  disaggregation: string[];
+  method: CollectionMethod;
+  frequency: Frequency;
+  meansOfVerification: string;
+  /** A value found in the documents, or "" (pending baseline). */
+  baselineSuggestion: string;
+  baselineBasis: "document" | "none";
+  baselineMethod: string;
+  /** A document or standard value, or the proposed target-setting method sentence. */
+  targetSuggestion: string;
+  targetBasis: "document" | "standard_threshold" | "method_only" | "none";
+  targetJustification: string;
+  standardReferenceCode: string | null;
+  rationale: string;
+  qualityNotes: string[];
+  confidence: "high" | "medium" | "low";
+  /** File names the baseline and target were found in. */
+  sources: { baseline: string | null; target: string | null };
+  /** 1-based rank within its result. */
+  rank: number;
+}
+
+/** A suggested indicator (backend KpiSuggestionDto). */
+export interface KpiSuggestion {
+  id: string;
+  runId: string;
+  projectId: string;
+  frameworkId: string;
+  /** null when the result was deleted. */
+  resultId: string | null;
+  resultCode: string;
+  level: SuggestableLevel;
+  sortOrder: number;
+  status: SuggestionStatus;
+  qualityScore: number;
+  qualityBand: QualityBand;
+  warnings: KpiWarning[];
+  libraryId: string | null;
+  isCustom: boolean;
+  origin: SuggestionOrigin;
+  /** Served model id. */
+  model: string;
+  promptVersion: string;
+  alternativeOfIndicatorId: string | null;
+  alternativeOfSuggestionId: string | null;
+  /** The indicator created on accept. */
+  indicatorId: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+  decidedBy: string | null;
+  rejectReason: SuggestionRejectReason | null;
+  rejectNote: string | null;
+  suggestion: KpiSuggestionPayload;
+  draft: IndicatorDraft;
+}
+
+/** One "Suggest KPIs" request (backend KpiRunDto), polled while running. */
+export interface KpiRun {
+  id: string;
+  projectId: string;
+  frameworkId: string;
+  scope: KpiScopeType;
+  resultId: string | null;
+  sourceIndicatorId: string | null;
+  sourceSuggestionId: string | null;
+  /** 'failed' also for a run that stopped sending heartbeats (errorCode 'interrupted'). */
+  status: "running" | "completed" | "failed";
+  step: KpiRunStep;
+  errorCode: KpiErrorCode | null;
+  /** Safe English message of a failed run. */
+  message: string | null;
+  /** Run-level notes ("Gaps Raqib noticed"). */
+  frameworkWarnings: KpiWarning[];
+  suggestionCount: number;
+  retrieval: "vector" | "keyword" | null;
+  model: string | null;
+  promptVersion: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+}
+
+/** Body of POST /api/projects/:id/kpi-suggestions. */
+export type RequestKpiSuggestionsBody =
+  | { scope: "framework" }
+  | { scope: "result"; resultId: string }
+  | { scope: "alternatives"; indicatorId: string }
+  | { scope: "alternatives"; suggestionId: string };
+
+/**
+ * POST /api/projects/:id/kpi-suggestions (and POST /api/indicators/:id/alternative): 200 with the finished run and
+ * its suggestions, or 202 with the running run (poll GET /api/kpi-suggestion-runs/:id). `httpStatus` is added by
+ * the API client.
+ */
+export interface RequestKpiSuggestionsResponse {
+  run: KpiRun;
+  suggestions?: KpiSuggestion[];
+  httpStatus: number;
+}
+
+/** GET /api/kpi-suggestion-runs/:id: the run and all its suggestions (any status). */
+export interface KpiSuggestionRunResponse {
+  run: KpiRun;
+  suggestions: KpiSuggestion[];
+}
+
+/** Query of GET /api/projects/:id/kpi-suggestions (status default pending; "all" for every status). */
+export interface KpiSuggestionFilters {
+  status?: SuggestionStatus | "all";
+  resultId?: string;
+  runId?: string;
+}
+
+/** GET /api/projects/:id/kpi-suggestions. */
+export interface KpiSuggestionList {
+  /** The framework version listed (default: the current one). */
+  frameworkId: string | null;
+  suggestions: KpiSuggestion[];
+  /** Runs still running, so progress resumes after a reload. */
+  activeRuns: KpiRun[];
+  latestFrameworkRun: KpiRun | null;
+}
+
+/** 201 body of POST /api/kpi-suggestions/:id/accept (warnings: donor_cap_exceeded only, today). */
+export interface AcceptKpiSuggestionResponse {
+  indicator: Indicator;
+  suggestion: KpiSuggestion;
+  warnings: KpiWarning[];
+}
+
+/** Body of POST /api/kpi-suggestions/:id/reject. The note must not contain personal data; it is stored redacted. */
+export interface RejectKpiSuggestionBody {
+  reason: SuggestionRejectReason;
+  note?: string;
+}
+
+/** Deterministic quality check of an existing indicator (GET /api/frameworks/:id/indicator-quality). */
+export interface IndicatorQuality {
+  indicatorId: string;
+  qualityScore: number;
+  qualityBand: QualityBand;
+  warnings: KpiWarning[];
+  /** Some warning costs points: the row offers "Show alternatives". */
+  needsAlternatives: boolean;
+}
+
+/** GET /api/kpi-assistant/status. */
+export interface KpiAssistantStatus {
+  /** False until the server has a real Anthropic API key (POST then answers 503 ai_not_configured). */
+  aiConfigured: boolean;
+  embeddings: "voyage" | "none";
+  promptVersion: string;
+}

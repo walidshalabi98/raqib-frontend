@@ -10,6 +10,12 @@ import type {
   Indicator,
   IndicatorDataResponse,
   IndicatorInput,
+  IndicatorQuality,
+  KpiAssistantStatus,
+  KpiSuggestion,
+  KpiSuggestionFilters,
+  KpiSuggestionList,
+  KpiSuggestionRunResponse,
   LibraryEntry,
   LibraryFilters,
   LoginResponse,
@@ -19,6 +25,10 @@ import type {
   ProjectInput,
   ProjectUpdateInput,
   QualitativeEntryCreateResponse,
+  AcceptKpiSuggestionResponse,
+  RejectKpiSuggestionBody,
+  RequestKpiSuggestionsBody,
+  RequestKpiSuggestionsResponse,
   ResultDeleteResponse,
   ResultNode,
   ResultNodeInput,
@@ -75,12 +85,17 @@ class ApiClient {
 
   /**
    * Calls the API and returns the parsed JSON body; a failed response throws an
-   * ApiError carrying the HTTP status. `T` is the response type;
-   * endpoints without a model in src/types/api.ts keep the untyped default
-   * until their screens are rebuilt (Phase 6).
+   * ApiError carrying the HTTP status (and the error body's `code` and `details`).
+   * `T` is the response type; endpoints without a model in src/types/api.ts keep
+   * the untyped default until their screens are rebuilt (Phase 6).
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- default for endpoints not yet modelled
   private async request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    return (await this.send<T>(endpoint, options)).data;
+  }
+
+  /** Like request(), but also returns the HTTP status of the successful response (e.g. 200 vs 202). */
+  private async send<T>(endpoint: string, options: RequestInit = {}): Promise<{ data: T; status: number }> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...((options.headers as Record<string, string>) || {}),
@@ -107,7 +122,7 @@ class ApiClient {
       if (refreshed) {
         headers['Authorization'] = `Bearer ${this.getToken()}`;
         const retry = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-        if (retry.ok) return this.parseBody<T>(retry);
+        if (retry.ok) return { data: await this.parseBody<T>(retry), status: retry.status };
       }
       this.clearToken();
       window.location.href = '/';
@@ -116,10 +131,15 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new ApiError(error.message || 'API request failed', response.status);
+      throw new ApiError(
+        error.message || 'API request failed',
+        response.status,
+        typeof error.code === 'string' ? error.code : undefined,
+        error.details && typeof error.details === 'object' ? (error.details as Record<string, unknown>) : undefined,
+      );
     }
 
-    return this.parseBody<T>(response);
+    return { data: await this.parseBody<T>(response), status: response.status };
   }
 
   /** JSON body of a successful response; undefined for an empty body (e.g. 204). */
@@ -267,12 +287,66 @@ class ApiClient {
     return this.request<Indicator>(`/indicators/${id}/approve`, { method: 'PATCH' });
   }
 
-  async requestAlternative(indicatorId: string) {
-    return this.request(`/indicators/${indicatorId}/alternative`, { method: 'POST' });
+  /** Alternatives to an indicator through the KPI Assistant (same answers as requestKpiSuggestions with scope alternatives). */
+  async requestAlternative(indicatorId: string): Promise<RequestKpiSuggestionsResponse> {
+    const { data, status } = await this.send<Omit<RequestKpiSuggestionsResponse, 'httpStatus'>>(
+      `/indicators/${indicatorId}/alternative`, { method: 'POST' },
+    );
+    return { ...data, httpStatus: status };
   }
 
   async deleteIndicator(id: string) {
     return this.request(`/indicators/${id}`, { method: 'DELETE' });
+  }
+
+  // KPI Assistant (Phase 4; knowledge/kpi-assistant-spec.md §A6)
+  /** Whether the server can call the AI (aiConfigured false until the Anthropic key is set). */
+  async getKpiAssistantStatus() {
+    return this.request<KpiAssistantStatus>('/kpi-assistant/status');
+  }
+
+  /**
+   * Starts a KPI run: 200 when it finished within the server's wait (run + suggestions), 202 while it runs (poll
+   * getKpiSuggestionRun). `httpStatus` tells them apart. Errors carry ApiError.code (e.g. run_in_progress with
+   * details.runId, ai_not_configured, nothing_to_suggest).
+   */
+  async requestKpiSuggestions(projectId: string, body: RequestKpiSuggestionsBody): Promise<RequestKpiSuggestionsResponse> {
+    const { data, status } = await this.send<Omit<RequestKpiSuggestionsResponse, 'httpStatus'>>(
+      `/projects/${projectId}/kpi-suggestions`, { method: 'POST', body: JSON.stringify(body) },
+    );
+    return { ...data, httpStatus: status };
+  }
+
+  /** Suggestions of the project's current framework (pending by default), its active runs and latest framework run. */
+  async getKpiSuggestions(projectId: string, filters: KpiSuggestionFilters = {}) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) params.set(key, String(value));
+    }
+    const query = params.toString();
+    return this.request<KpiSuggestionList>(`/projects/${projectId}/kpi-suggestions${query ? `?${query}` : ''}`);
+  }
+
+  async getKpiSuggestionRun(runId: string) {
+    return this.request<KpiSuggestionRunResponse>(`/kpi-suggestion-runs/${runId}`);
+  }
+
+  /** Accepts a suggestion; `edits` holds only the fields the user changed (none: accepted as suggested). */
+  async acceptKpiSuggestion(id: string, edits?: IndicatorInput) {
+    return this.request<AcceptKpiSuggestionResponse>(`/kpi-suggestions/${id}/accept`, {
+      method: 'POST',
+      body: JSON.stringify(edits ? { edits } : {}),
+    });
+  }
+
+  async rejectKpiSuggestion(id: string, body: RejectKpiSuggestionBody) {
+    return this.request<{ suggestion: KpiSuggestion }>(`/kpi-suggestions/${id}/reject`, { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  /** Deterministic quality check of every indicator of a framework (no AI call). */
+  async getIndicatorQuality(frameworkId: string): Promise<IndicatorQuality[]> {
+    const data = await this.request<{ indicators: IndicatorQuality[] }>(`/frameworks/${frameworkId}/indicator-quality`);
+    return data?.indicators ?? [];
   }
 
   // Indicator data

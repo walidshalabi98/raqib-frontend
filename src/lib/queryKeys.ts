@@ -8,4 +8,9 @@ export const queryKeys = {
   frameworkResults: (frameworkId: string) => ["framework-results", frameworkId] as const,
   documents: (projectId: string) => ["documents", projectId] as const,
   libraryEntry: (id: string) => ["indicator-library", "entry", id] as const,
+  // KPI Assistant (Phase 4)
+  kpiAssistantStatus: ["kpi-assistant-status"] as const,
+  kpiSuggestions: (projectId: string) => ["kpi-suggestions", projectId] as const,
+  kpiSuggestionRun: (runId: string) => ["kpi-suggestion-run", runId] as const,
+  indicatorQuality: (frameworkId: string) => ["indicator-quality", frameworkId] as const,
 };
