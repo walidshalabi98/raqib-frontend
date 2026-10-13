@@ -13,7 +13,6 @@ import type {
   ResultNode,
   SuggestableLevel,
   SuggestionRejectReason,
-  UserRole,
 } from "@/types/api";
 
 /**
@@ -33,18 +32,9 @@ export function qualityBand(score: number): QualityBand {
   return "weak";
 }
 
-// --------------------------------------------------------------------- roles
-
-/** Roles that may use the KPI Assistant (mirror of the backend KPI_ROLES; design section 7). */
-export const KPI_ROLES: readonly UserRole[] = ["org_admin", "platform_admin", "me_officer"];
-
-/**
- * Whether a user role sees the KPI Assistant (spec §A1: donor viewers see approved indicators only, never raw
- * suggestions). Unknown or missing roles (signed out) see nothing.
- */
-export function canSuggestKpis(role: string | null | undefined): boolean {
-  return typeof role === "string" && (KPI_ROLES as readonly string[]).includes(role);
-}
+// --------------------------------------------------------------------- levels
+// Who may use the KPI Assistant is the "ai.run" capability of src/lib/permissions.ts (usePermissions().can("ai.run")),
+// the mirror of the backend KPI_ROLES = STAFF_ROLES: donor viewers never see raw suggestions (spec §A1).
 
 /** Whether Raqib suggests indicators for a result of this level (spec §A2: impact, outcome and output; never activities). */
 export function isSuggestableLevel(level: string | null | undefined): level is SuggestableLevel {

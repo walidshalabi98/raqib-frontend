@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import i18n from "@/i18n";
 import { ApiError } from "@/lib/apiError";
 import { KPI_REJECT_REASONS } from "@/lib/constants";
+import { can } from "@/lib/permissions";
 import {
   KPI_FRAMEWORK_POLL_CAP_MS,
   KPI_RESULT_POLL_CAP_MS,
   REJECTION_SCOPE,
   acceptedToastText,
   bodyForRun,
-  canSuggestKpis,
   focusCandidates,
   groupSuggestions,
   isRetryableError,
@@ -46,15 +46,15 @@ describe("qualityBand", () => {
   });
 });
 
-describe("canSuggestKpis and isSuggestableLevel", () => {
-  it("allows org admins, platform admins and M&E officers, never donor viewers or signed-out users", () => {
-    expect(canSuggestKpis("org_admin")).toBe(true);
-    expect(canSuggestKpis("platform_admin")).toBe(true);
-    expect(canSuggestKpis("me_officer")).toBe(true);
-    expect(canSuggestKpis("donor_viewer")).toBe(false);
-    expect(canSuggestKpis(undefined)).toBe(false);
-    expect(canSuggestKpis(null)).toBe(false);
-    expect(canSuggestKpis("someone_else")).toBe(false);
+describe("who may use the KPI Assistant, and isSuggestableLevel", () => {
+  it('is the "ai.run" capability: org admins, platform admins and M&E officers, never donor viewers or signed-out users', () => {
+    expect(can("org_admin", "ai.run")).toBe(true);
+    expect(can("platform_admin", "ai.run")).toBe(true);
+    expect(can("me_officer", "ai.run")).toBe(true);
+    expect(can("donor_viewer", "ai.run")).toBe(false);
+    expect(can(undefined, "ai.run")).toBe(false);
+    expect(can(null, "ai.run")).toBe(false);
+    expect(can("someone_else", "ai.run")).toBe(false);
   });
 
   it("suggests for impact, outcome and output, never activities", () => {

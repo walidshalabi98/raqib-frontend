@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { IndicatorDialog } from "@/components/project/IndicatorDialog";
 import { ResultsChainPanel } from "@/components/project/ResultsChainPanel";
 import { invalidateFrameworkData, useFrameworkResults } from "@/hooks/useFrameworkData";
-import { useOptionalAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
 import type { AppLanguage } from "@/i18n";
 import { canApproveIndicator, needsAiReviewLabel } from "@/lib/indicatorForm";
@@ -160,7 +160,7 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
 
   const lang = useUserLanguage();
   const { t } = useTranslation(undefined, { lng: lang });
-  const role = useOptionalAuth()?.user?.role;
+  const { role } = usePermissions();
 
   const { data: framework, isLoading } = useQuery({
     queryKey: queryKeys.framework(projectId),

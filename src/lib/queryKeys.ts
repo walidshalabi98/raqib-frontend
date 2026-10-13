@@ -7,6 +7,7 @@ export const queryKeys = {
   dashboard: (projectId: string) => ["dashboard", projectId] as const,
   frameworkResults: (frameworkId: string) => ["framework-results", frameworkId] as const,
   documents: (projectId: string) => ["documents", projectId] as const,
+  beneficiaryStats: (projectId: string) => ["beneficiary-stats", projectId] as const,
   libraryEntry: (id: string) => ["indicator-library", "entry", id] as const,
   // KPI Assistant (Phase 4)
   kpiAssistantStatus: ["kpi-assistant-status"] as const,

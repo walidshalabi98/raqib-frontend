@@ -12,9 +12,9 @@ import { errorMessage } from "@/lib/utils";
 import { dirFor } from "@/i18n";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { PersonalDataWarning } from "@/components/common/PersonalDataWarning";
-import { useOptionalAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useRequestKpiSuggestions } from "@/hooks/useKpiSuggestions";
-import { canSuggestKpis, requestErrorCode, runErrorCode } from "@/lib/kpiSuggestions";
+import { requestErrorCode, runErrorCode } from "@/lib/kpiSuggestions";
 import type { Indicator } from "@/types/api";
 
 const steps = ["Upload Documents", "AI Processing", "Review Framework", "Summary"];
@@ -56,7 +56,7 @@ export default function AIWizard() {
   const { t } = useTranslation(undefined, { lng: lang });
   const warningId = useId();
   const [currentStep, setCurrentStep] = useState(0);
-  const canAskAlternatives = canSuggestKpis(useOptionalAuth()?.user?.role);
+  const canAskAlternatives = usePermissions().can("ai.run");
   const alternatives = useRequestKpiSuggestions(projectId ?? "");
   const requestingId = alternatives.isPending && alternatives.variables && "indicatorId" in alternatives.variables
     ? alternatives.variables.indicatorId

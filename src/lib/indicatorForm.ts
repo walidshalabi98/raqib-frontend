@@ -12,9 +12,9 @@ import type {
   IndicatorStatus,
   IntermediateTarget,
   Milestone,
-  UserRole,
 } from "@/types/api";
 import { isIsoDate, toDateInput } from "@/lib/dates";
+import { can } from "@/lib/permissions";
 
 /**
  * State, validation and payloads of the indicator form (the indicator
@@ -261,21 +261,18 @@ export function needsAiReviewLabel(
   return isAiProvenance(provenance) && !isApproved;
 }
 
-/** Roles that may approve an indicator (PATCH /api/indicators/:id/approve; raqib-backend src/routes/indicators.ts). */
-export const INDICATOR_APPROVER_ROLES: readonly UserRole[] = ["org_admin", "platform_admin"];
-
 /**
- * Whether the indicator table offers "Approve" for an indicator (design D18 and section 9.5): an org or platform admin,
- * an indicator not yet approved, in a framework that is already approved or active (before that, approving the
- * framework approves its indicators).
+ * Whether the indicator table offers "Approve" for an indicator (design D18 and section 9.5): a role with the
+ * "framework.approve" capability (src/lib/permissions.ts: org and platform admins, as for PATCH
+ * /api/indicators/:id/approve on the server), an indicator not yet approved, in a framework that is already approved or
+ * active (before that, approving the framework approves its indicators).
  */
 export function canApproveIndicator(
   role: string | null | undefined,
   indicator: { isApproved: boolean | null | undefined },
   frameworkStatus: FrameworkStatus | null | undefined,
 ): boolean {
-  return typeof role === "string" && (INDICATOR_APPROVER_ROLES as readonly string[]).includes(role)
-    && !indicator.isApproved && isFrameworkApproved(frameworkStatus);
+  return can(role, "framework.approve") && !indicator.isApproved && isFrameworkApproved(frameworkStatus);
 }
 
 /** A library id as the library stores it: trimmed and upper-case ("fs-01 " → "FS-01"). */

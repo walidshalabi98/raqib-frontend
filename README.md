@@ -77,3 +77,5 @@ Code: `src/components/kpi/` (cards, progress, provider), `src/hooks/useKpiSugges
 ## Working on Raqib
 
 Read [`CLAUDE.md`](CLAUDE.md), [`docs/BUILD_GUIDE.md`](docs/BUILD_GUIDE.md) and [`docs/UX_STANDARDS.md`](docs/UX_STANDARDS.md) before changing screens.
+
+- **Roles:** role-aware UI uses `can(role, capability)` from `src/lib/permissions.ts`, a mirror of the backend role matrix (backend `docs/SECURITY_SETUP.md` §8; keep both in step). The server enforces every rule; the UI only hides what a role cannot use. Pages read the role with `usePermissions()` and pass props such as `readOnly`, `canManage`, `canGenerate` or `audience` to components. The role comes from the current access token (`src/lib/session.ts`), the one the server reads, so a role an admin changes reaches the screens with the next token refresh (at most 15 minutes) without signing in again; `AuthProvider` then drops every cached response, because the API answers donor viewers in another shape. Missing or unknown roles get nothing (the donor view), and donor viewers never see beneficiaries' personal data or unreviewed AI output.

@@ -3,9 +3,9 @@ import { api } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import type { ApiError } from "@/lib/apiError";
 import { httpStatusOf } from "@/lib/apiError";
-import { useOptionalAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import { invalidateFrameworkData } from "@/hooks/useFrameworkData";
-import { canSuggestKpis, kpiPollInterval, mergeRunIntoList, withoutSuggestion } from "@/lib/kpiSuggestions";
+import { kpiPollInterval, mergeRunIntoList, withoutSuggestion } from "@/lib/kpiSuggestions";
 import type {
   AcceptKpiSuggestionResponse,
   IndicatorInput,
@@ -30,12 +30,12 @@ const STATUS_STALE_MS = 5 * 60_000;
 
 /** Whether the AI is configured on the server (staleTime 5 min). Requested only for roles that use the assistant. */
 export function useKpiAssistantStatus(): UseQueryResult<KpiAssistantStatus> {
-  const role = useOptionalAuth()?.user?.role;
+  const { can } = usePermissions();
   return useQuery({
     queryKey: queryKeys.kpiAssistantStatus,
     queryFn: () => api.getKpiAssistantStatus(),
     staleTime: STATUS_STALE_MS,
-    enabled: canSuggestKpis(role),
+    enabled: can("ai.run"),
   });
 }
 
@@ -144,11 +144,11 @@ export function useRejectKpiSuggestion(
  * donor viewers (the route is limited to the KPI roles).
  */
 export function useIndicatorQuality(frameworkId: string | undefined): UseQueryResult<IndicatorQuality[]> {
-  const role = useOptionalAuth()?.user?.role;
+  const { can } = usePermissions();
   return useQuery({
     queryKey: queryKeys.indicatorQuality(frameworkId ?? ""),
     queryFn: () => api.getIndicatorQuality(frameworkId as string),
-    enabled: Boolean(frameworkId) && canSuggestKpis(role),
+    enabled: Boolean(frameworkId) && can("ai.run"),
   });
 }
 

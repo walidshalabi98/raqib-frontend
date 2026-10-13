@@ -1,7 +1,9 @@
 import { Bell, ChevronDown, LogOut, User, Settings } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/contexts/AuthContext";
+import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { api } from "@/services/api";
 import {
   DropdownMenu,
@@ -15,6 +17,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 export function TopBar() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const lang = useUserLanguage();
+  const { t } = useTranslation(undefined, { lng: lang });
   const queryClient = useQueryClient();
 
   const { data: notifications = [] } = useQuery({
@@ -38,10 +42,15 @@ export function TopBar() {
         {/* Notifications */}
         <Popover>
           <PopoverTrigger asChild>
-            <button className="relative p-2 rounded-lg hover:bg-secondary transition-colors">
-              <Bell className="h-[18px] w-[18px] text-muted-foreground" />
+            <button
+              // An icon button needs a name (WCAG 4.1.2); it includes the unread count shown on the badge.
+              aria-label={unreadCount > 0 ? t("layout.notificationsUnread", { count: unreadCount }) : t("layout.notifications")}
+              lang={lang}
+              className="relative p-2 rounded-lg hover:bg-secondary transition-colors"
+            >
+              <Bell aria-hidden="true" className="h-[18px] w-[18px] text-muted-foreground" />
               {unreadCount > 0 && (
-                <span className="absolute -top-0 -right-0 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                <span aria-hidden="true" className="absolute -top-0 -right-0 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
                   {unreadCount}
                 </span>
               )}
@@ -74,12 +83,17 @@ export function TopBar() {
 
         {/* User menu */}
         <DropdownMenu>
-          <DropdownMenuTrigger className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-secondary transition-colors">
-            <div className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold">
+          {/* The name is hidden below md, so the button is named in full (not by the initials alone). */}
+          <DropdownMenuTrigger
+            aria-label={t("layout.userMenu", { name: user?.fullName || "User" })}
+            lang={lang}
+            className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-secondary transition-colors"
+          >
+            <div aria-hidden="true" className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold">
               {initials}
             </div>
-            <span className="text-sm font-medium hidden md:block">{user?.fullName || 'User'}</span>
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+            <span aria-hidden="true" className="text-sm font-medium hidden md:block">{user?.fullName || 'User'}</span>
+            <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 text-muted-foreground" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem><User className="h-4 w-4 mr-2" /> Profile</DropdownMenuItem>

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { AppLanguage } from "@/i18n";
-import { useOptionalAuth } from "@/contexts/AuthContext";
 import {
   KpiAssistantContext,
   type KpiAssistantValue,
@@ -17,12 +16,12 @@ import {
   usePendingKpiSuggestions,
   useRequestKpiSuggestions,
 } from "@/hooks/useKpiSuggestions";
+import { usePermissions } from "@/hooks/usePermissions";
 import { queryKeys } from "@/lib/queryKeys";
 import { httpStatusOf } from "@/lib/apiError";
 import type { KpiShownErrorCode } from "@/lib/constants";
 import {
   bodyForRun,
-  canSuggestKpis,
   isRetryableError,
   kpiRunNeedsRefresh,
   progressStepAt,
@@ -138,8 +137,8 @@ function KpiRunWatcher({
  * itself. Disabled for roles without the assistant (donor viewers: spec §A1).
  */
 export function KpiAssistantProvider({ projectId, frameworkId, lang, children }: KpiAssistantProviderProps) {
-  const role = useOptionalAuth()?.user?.role;
-  const enabled = canSuggestKpis(role);
+  // The "ai.run" capability (src/lib/permissions.ts): staff roles only, never donor viewers.
+  const enabled = usePermissions().can("ai.run");
   const { t } = useTranslation(undefined, { lng: lang });
   const queryClient = useQueryClient();
   const status = useKpiAssistantStatus();

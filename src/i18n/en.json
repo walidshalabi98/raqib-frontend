@@ -11,6 +11,140 @@
     "takingLonger": "This is taking longer than expected.",
     "refresh": "Refresh"
   },
+  "errors": {
+    "forbidden": "You don't have permission to do this. Ask your organisation's admin if you need access."
+  },
+  "access": {
+    "readOnlyBanner": "You have read-only access to this project. Project staff add and change its data.",
+    "beneficiaries": {
+      "staffOnly": "Individual beneficiary records are visible to project staff only. You see totals and breakdowns without names, phone numbers or ID numbers, as humanitarian data-protection standards require.",
+      "registerError": "We couldn't load the beneficiaries.",
+      "registerTable": "Beneficiary register",
+      "sexSlice": "{{sex}}: {{count}}"
+    },
+    "export": {
+      "donorNote": "Donor exports contain results and aggregated figures only. Beneficiaries' personal data is never included.",
+      "personalDataNote": "This file contains beneficiaries' personal data. Store it securely, share it only with people who need it, and delete it when you no longer need it.",
+      "roleChanged": "Your access changed while the file was being prepared, so it was not saved. The export options now match your role: choose an export again."
+    },
+    "documents": {
+      "donorNote": "You see proposals, logframes, theories of change, baseline reports, donor guidelines and budgets. Other files, such as interview transcripts, and the AI analyses of documents stay with project staff.",
+      "emptyReadOnly": "No documents have been shared yet."
+    },
+    "qualitative": {
+      "donorNote": "Transcripts, notes and AI-suggested themes stay with project staff. You see the type of each activity, the month and the number of participants. Project staff share reviewed findings in reports.",
+      "entryHeading": "{{type}} · {{month}}",
+      "participants_one": "{{count}} participant",
+      "participants_other": "{{count}} participants",
+      "emptyReadOnly": "No qualitative findings yet.",
+      "loadError": "We couldn't load the qualitative data.",
+      "codedFindings": "Coded findings",
+      "sentimentLabel": "Overall sentiment: {{sentiment}}"
+    },
+    "risks": {
+      "donorTitle": "Risk analysis",
+      "donorBody": "Project staff run the AI risk analysis and review it. Reviewed findings are shared with you in reports."
+    },
+    "reports": {
+      "empty": "No reports generated yet.",
+      "loadError": "We couldn't load the reports.",
+      "emptyReadOnly": "No reports have been published yet."
+    },
+    "assessments": {
+      "reportStaffOnly": "Project staff review the AI report first. Reviewed findings are shared with you in published reports.",
+      "stages": "Assessment stages"
+    }
+  },
+  "beneficiarySummary": {
+    "title": "Beneficiary summary",
+    "selectProject": "Select a project to see its beneficiary summary.",
+    "project": "Project",
+    "total": "Total beneficiaries",
+    "services": "Services delivered",
+    "bySex": "By sex",
+    "byAgeGroup": "By age group",
+    "byGovernorate": "By governorate",
+    "byStatus": "By status",
+    "byVulnerability": "By vulnerability (one person can count in several rows)",
+    "byService": "People reached, by service type (one person can count in several rows)",
+    "dimension": "Breakdown",
+    "category": "Category",
+    "people": "People",
+    "notRecorded": "Not recorded",
+    "other": "Other (combined)",
+    "hidden": "Hidden",
+    "hiddenLegend": "Hidden: counts from 1 to {{maxHidden}} are hidden to protect people's privacy. In the vulnerability and service tables, counts from 1 to {{maxHiddenSensitive}} are hidden, and so is a count that almost everyone shares (fewer than {{minSensitive}} people outside it). All other figures, totals included, are rounded to the nearest {{roundingBase}} (0 stays 0), so the rows may not add up to the total. When a hidden count could still be worked out from the rounded figures, the whole table is hidden.",
+    "allHidden": "The figures for this project are hidden to protect people's privacy: it has fewer than {{min}} beneficiaries, or a small count could otherwise be worked out from them.",
+    "dimensionEmpty": "Nothing recorded for this breakdown.",
+    "tableHidden": "This breakdown is hidden to protect people's privacy.",
+    "dimensionEmptyOrHidden": "Nothing to show: nothing was recorded, or the counts are hidden to protect people's privacy.",
+    "empty": "No beneficiaries are registered for this project yet.",
+    "error": "We couldn't load the beneficiary summary."
+  },
+  "beneficiary": {
+    "sex": {
+      "male": "Male",
+      "female": "Female",
+      "other": "Other"
+    },
+    "ageGroup": {
+      "child_0_5": "Children 0–5",
+      "child_6_11": "Children 6–11",
+      "adolescent_12_17": "Adolescents 12–17",
+      "youth_18_24": "Youth 18–24",
+      "adult_25_59": "Adults 25–59",
+      "elderly_60_plus": "Older people 60+"
+    },
+    "status": {
+      "active": "Active",
+      "completed": "Completed",
+      "dropped_out": "Dropped out",
+      "referred": "Referred"
+    }
+  },
+  "qualitativeType": {
+    "fgd_transcript": "Focus group discussion",
+    "kii_notes": "Key informant interview",
+    "observation_checklist": "Observation checklist",
+    "community_scorecard": "Community scorecard",
+    "msc_story": "Most significant change story",
+    "field_notes": "Field notes"
+  },
+  "sentiment": {
+    "positive": "Positive",
+    "neutral": "Neutral",
+    "negative": "Negative",
+    "mixed": "Mixed"
+  },
+  "exportPanel": {
+    "title": "Export data",
+    "indicatorsTitle": "Indicators",
+    "indicatorsDescription": "Indicators with baseline, target and current values, as CSV",
+    "registerTitle": "Beneficiary register",
+    "registerDescription": "Beneficiary register with demographics and services, as CSV",
+    "summaryTitle": "Beneficiary summary",
+    "summaryDescription": "Totals and breakdowns as CSV, rounded, with small numbers hidden",
+    "fullTitle": "Full project",
+    "fullDescription": "Everything, including beneficiaries, assessments and qualitative data, as JSON",
+    "resultsTitle": "Project results",
+    "resultsDescription": "Results chain, indicators and their values, assessments and qualitative activities as JSON, without personal data",
+    "exportCsv": "Export CSV",
+    "exportJson": "Export JSON",
+    "success": "Export ready",
+    "failed": "We couldn't export the data.",
+    "noData": "There is no data to export yet."
+  },
+  "projectDetail": {
+    "backToProjects": "Back to projects"
+  },
+  "layout": {
+    "openMenu": "Open the navigation menu",
+    "closeMenu": "Close the navigation menu",
+    "notifications": "Notifications",
+    "notificationsUnread_one": "Notifications: {{count}} unread",
+    "notificationsUnread_other": "Notifications: {{count}} unread",
+    "userMenu": "Account menu: {{name}}"
+  },
   "language": {
     "en": "English",
     "ar": "العربية",
@@ -334,7 +468,21 @@
     }
   },
   "projects": {
-    "allSectors": "All sectors"
+    "allSectors": "All sectors",
+    "filterSector": "Filter by sector",
+    "filterStatus": "Filter by status",
+    "view": "Layout",
+    "viewGrid": "Show as cards",
+    "viewList": "Show as a list",
+    "search": "Search projects",
+    "searchPlaceholder": "Search projects…"
+  },
+  "reportType": {
+    "assessment_report": "Assessment report",
+    "monthly_progress": "Monthly progress report",
+    "quarterly_summary": "Quarterly summary",
+    "annual_review": "Annual review",
+    "donor_export": "Donor export"
   },
   "projectForm": {
     "trigger": "New project",

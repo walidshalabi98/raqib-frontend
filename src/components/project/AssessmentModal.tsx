@@ -12,8 +12,10 @@ import { Plus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/utils";
 
-export function AssessmentModal() {
-  const { id: projectId } = useParams();
+/** Requests an assessment for `projectId`, or for the project in the URL (/projects/:id) when it is omitted. */
+export function AssessmentModal({ projectId: projectIdProp }: { projectId?: string } = {}) {
+  const { id: projectIdParam } = useParams();
+  const projectId = projectIdProp ?? projectIdParam;
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);

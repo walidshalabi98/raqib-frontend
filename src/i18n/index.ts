@@ -2,6 +2,7 @@ import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import en from "./en.json";
 import ar from "./ar.json";
+import { setErrorTranslator } from "@/lib/apiError";
 
 /**
  * Translations for English and Arabic (Modern Standard Arabic). Every UI
@@ -33,6 +34,9 @@ if (!i18n.isInitialized) {
     initAsync: false,
   });
 }
+
+// errorMessage (src/lib/utils.ts) translates a 403 through this, without importing the translations.
+setErrorTranslator((key, lng) => i18n.t(key, { lng }));
 
 /** The app language for a stored preference ("en" | "ar"); anything else is English. */
 export function toAppLanguage(pref: string | null | undefined): AppLanguage {

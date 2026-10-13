@@ -51,7 +51,7 @@ export interface KpiListError {
 }
 
 export interface KpiAssistantValue {
-  /** canSuggestKpis(role): false for donor viewers (no KPI UI at all). */
+  /** usePermissions().can("ai.run"): false for donor viewers (no KPI UI at all). */
   enabled: boolean;
   /** undefined while the status is loading; false after a 503 ai_not_configured too. */
   aiConfigured: boolean | undefined;

@@ -99,4 +99,20 @@ describe("AssessmentPipeline", () => {
     expect(block).toHaveAttribute("lang", "ar");
     expect(block).toHaveAttribute("dir", "rtl");
   });
+
+  it("never offers the unreviewed AI report to a read-only viewer (donors)", async () => {
+    const delivered = { id: "a-2", type: "baseline", status: "delivered", methodsIncluded: ["hh_survey"], sampleSize: 300, requestedAt: ago(86_400_000), deliveredAt: ago(3_600_000) };
+    vi.mocked(api.getAssessments).mockResolvedValue([delivered]);
+    renderWithClient(<AssessmentPipeline projectId="p-1" readOnly />);
+    expect(await screen.findByText("Project staff review the AI report first. Reviewed findings are shared with you in published reports.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /View Report/ })).not.toBeInTheDocument();
+    expect(api.getAssessmentReport).not.toHaveBeenCalled();
+  });
+
+  it("keeps View Report for staff", async () => {
+    vi.mocked(api.getAssessments).mockResolvedValue([{ id: "a-2", type: "baseline", status: "delivered", methodsIncluded: [], requestedAt: ago(86_400_000) }]);
+    renderWithClient(<AssessmentPipeline projectId="p-1" />);
+    expect(await screen.findByRole("button", { name: /View Report/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Project staff review the AI report first/)).not.toBeInTheDocument();
+  });
 });

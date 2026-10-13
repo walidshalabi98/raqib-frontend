@@ -4,6 +4,7 @@ import { MethodPill } from "@/components/common/MethodPill";
 import { StatusDot } from "@/components/common/StatusDot";
 import { Sparkline } from "./Sparkline";
 import { Loader2 } from "lucide-react";
+import { trendPoints } from "@/lib/trends";
 
 const statusColor: Record<string, string> = { on_track: "hsl(var(--success))", at_risk: "hsl(var(--warning))", off_track: "hsl(var(--danger))", not_started: "hsl(var(--muted-foreground))" };
 
@@ -20,7 +21,8 @@ export function KPIScorecard({ projectId }: { projectId: string }) {
   return (
     <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
       {trends.map((ind: any) => {
-        const trendData = ind.dataPoints?.map((dp: any) => parseFloat(dp.value)).filter((v: number) => !isNaN(v));
+        // Donor viewers: survey rows arrive as monthly aggregates (src/lib/trends.ts).
+        const trendData = trendPoints(ind).map((dp) => parseFloat(String(dp.value))).filter((v: number) => !isNaN(v));
         return (
           <div key={ind.indicatorId} className="card-surface p-4 hover:border-border-strong transition-colors">
             <div className="flex items-start justify-between mb-2">

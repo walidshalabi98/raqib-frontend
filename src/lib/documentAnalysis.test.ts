@@ -208,6 +208,16 @@ describe("documentRowState", () => {
     expect(documentRowState(doc({ aiAnalysis: { legacyText: "cut off" } }), soon)).toBe("noAnalysis");
   });
 
+  it("shows no analysis state when the analysis is withheld (donor viewers)", () => {
+    for (const overrides of [{}, { aiAnalysis: stored }, { textLength: 0 }, { qualitativeSource: true }, { uploadedAt: "not a date" }]) {
+      expect(documentRowState(doc(overrides), soon, true)).toBe("read");
+      expect(documentRowState(doc(overrides), late, true)).toBe("read");
+    }
+    // Reading itself is still reported.
+    expect(documentRowState(doc({ parsingStatus: "processing" }), soon, true)).toBe("processing");
+    expect(documentRowState(doc({ parsingStatus: "failed" }), soon, true)).toBe("failed");
+  });
+
   it("never waits for the analysis of a qualitative transcript", () => {
     expect(documentRowState(doc({ qualitativeSource: true }), soon)).toBe("transcript");
     expect(documentRowState(doc({ qualitativeSource: true, textLength: 10 }), soon)).toBe("noText");
@@ -246,6 +256,12 @@ describe("refresh while a document is read or analysed", () => {
     expect(documentsNeedRefresh([doc({ aiAnalysis: stored }), doc({ id: "d2", parsingStatus: "failed" })], uploaded + 5000)).toBe(false);
     expect(documentsNeedRefresh([doc({ textLength: 12 })], uploaded + 5000)).toBe(false);
     expect(documentsNeedRefresh([doc({ qualitativeSource: true })], uploaded + 5000)).toBe(false);
+  });
+
+  it("never refreshes to wait for an analysis that is withheld (donor viewers)", () => {
+    expect(documentsNeedRefresh([doc()], uploaded + 5000, true)).toBe(false);
+    expect(nextWaitDeadline([doc()], uploaded + 5000, true)).toBeNull();
+    expect(documentsNeedRefresh([doc({ parsingStatus: "processing" })], uploaded + 5000, true)).toBe(true);
   });
 
   it("gives the time the next waiting row stops waiting", () => {

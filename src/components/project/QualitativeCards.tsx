@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api } from "@/services/api";
-import { Users, MapPin, MessageSquare, FileText, Plus, Loader2, Upload, Brain, AlertTriangle } from "lucide-react";
+import { Users, MapPin, MessageSquare, FileText, Plus, Loader2, Upload, Brain, AlertTriangle, AlertCircle, Info, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { cn, errorMessage } from "@/lib/utils";
+import { isForbidden } from "@/lib/apiError";
 import { removedPersonalData } from "@/lib/redactions";
+import { formatMonthYear } from "@/lib/dates";
+import { isDonorQualitativeEntry } from "@/lib/disclosure";
+import type { DonorQualitativeEntry, QualitativeEntry } from "@/types/api";
 import { dirFor, type AppLanguage } from "@/i18n";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { PersonalDataWarning } from "@/components/common/PersonalDataWarning";
@@ -48,7 +52,73 @@ function PersonalDataHint({ id, lang, className }: { id: string; lang: AppLangua
   );
 }
 
-export function QualitativeCards({ projectId }: { projectId: string }) {
+/**
+ * One qualitative activity for roles that only read (donor viewers): type, month and number of
+ * participants. Never the title, notes, names, places or exact date, and no AI output (themes,
+ * sentiment): donors receive reviewed findings through reports. Not clickable.
+ */
+function ReadOnlyEntryCard({ entry, lang }: { entry: QualitativeEntry | DonorQualitativeEntry; lang: AppLanguage }) {
+  const { t } = useTranslation(undefined, { lng: lang });
+  const headingId = useId();
+  const Icon = typeIcons[entry.entryType] || FileText;
+  const type = t(`qualitativeType.${entry.entryType}`, { defaultValue: entry.entryType });
+  const month = formatMonthYear(isDonorQualitativeEntry(entry) ? entry.monthConducted : entry.dateConducted, lang);
+  const heading = month ? t("access.qualitative.entryHeading", { type, month }) : type;
+  return (
+    <article aria-labelledby={headingId} className="card-surface p-5">
+      <div className="flex items-start gap-3">
+        <Icon aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 space-y-1">
+          <h3 id={headingId} className="break-words text-sm font-semibold">{heading}</h3>
+          {typeof entry.participants === "number" && (
+            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Users aria-hidden="true" className="h-3 w-3 shrink-0" />
+              {t("access.qualitative.participants", { count: entry.participants })}
+            </p>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+/**
+ * The AI coding of an entry for org staff: sentiment and themes together under the
+ * "AI suggested — review before approval" label (frontend rule 5), shown when either exists.
+ */
+function AiCodedFindings({ sentiment, themes, lang }: { sentiment: string | null | undefined; themes: string[]; lang: AppLanguage }) {
+  const { t } = useTranslation(undefined, { lng: lang });
+  if (!sentiment && themes.length === 0) return null;
+  return (
+    <div role="group" aria-label={t("access.qualitative.codedFindings")} lang={lang} dir={dirFor(lang)} className="mb-3 space-y-2 rounded-md border border-warning/40 p-2 text-start">
+      <p role="note" className="inline-flex items-center gap-1.5 rounded-md bg-warning/10 px-2 py-0.5 text-xs font-medium">
+        <Sparkles aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+        {t("ai.suggestedLabel")}
+      </p>
+      {sentiment && (
+        <p className="flex items-center gap-1.5 text-xs">
+          <span aria-hidden="true" className={cn("h-2 w-2 shrink-0 rounded-full", sentimentColor[sentiment] || sentimentColor.neutral)} />
+          {t("access.qualitative.sentimentLabel", { sentiment: t(`sentiment.${sentiment}`, { defaultValue: sentiment }) })}
+        </p>
+      )}
+      {themes.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {themes.map((theme) => (
+            <li key={theme} className="rounded-md bg-secondary px-2 py-0.5 text-[10px] font-medium text-secondary-foreground">
+              <bdi>{theme.replace(/_/g, " ")}</bdi>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The project's qualitative entries. `readOnly` (donor viewers) hides adding, uploading and AI
+ * coding and shows each entry's coded findings only.
+ */
+export function QualitativeCards({ projectId, readOnly = false }: { projectId: string; readOnly?: boolean }) {
   const queryClient = useQueryClient();
   const lang = useUserLanguage();
   const { t } = useTranslation(undefined, { lng: lang });
@@ -68,7 +138,7 @@ export function QualitativeCards({ projectId }: { projectId: string }) {
   });
   const [uploading, setUploading] = useState(false);
 
-  const { data: entries = [], isLoading } = useQuery({
+  const { data: entries = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['qualitative', projectId],
     queryFn: () => api.getQualitativeEntries(projectId),
   });
@@ -113,10 +183,37 @@ export function QualitativeCards({ projectId }: { projectId: string }) {
     } catch (err) { toast.error(errorMessage(err, "Something went wrong")); }
   };
 
-  if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="h-5 w-5 animate-spin" /></div>;
+  if (isLoading) {
+    return (
+      <div role="status" className="flex justify-center p-8">
+        <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" />
+        <span lang={lang} className="sr-only">{t("common.loading")}</span>
+      </div>
+    );
+  }
+
+  // A failed request is never shown as "no findings yet".
+  if (isError) {
+    return (
+      <div role="alert" lang={lang} dir={dirFor(lang)} className="flex flex-wrap items-center gap-3 rounded-md border p-4 text-sm">
+        <AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-destructive" />
+        <span className="min-w-0 flex-1">{t(isForbidden(error) ? "errors.forbidden" : "access.qualitative.loadError")}</span>
+        <Button size="sm" variant="outline" className="min-h-11" onClick={() => void refetch()}>
+          {t("common.retry")}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
+      {readOnly && (
+        <p role="note" lang={lang} dir={dirFor(lang)} className="flex items-start gap-2 rounded-md border bg-muted/40 p-3 text-start text-sm">
+          <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{t("access.qualitative.donorNote")}</span>
+        </p>
+      )}
+      {!readOnly && (
       <div className="flex justify-end">
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
@@ -199,8 +296,20 @@ export function QualitativeCards({ projectId }: { projectId: string }) {
           </DialogContent>
         </Dialog>
       </div>
+      )}
 
-      {entries.length === 0 ? (
+      {readOnly ? (
+        entries.length === 0 ? (
+          <div lang={lang} dir={dirFor(lang)} className="card-surface p-8 text-center text-muted-foreground">
+            <MessageSquare aria-hidden="true" className="h-10 w-10 mx-auto mb-3 opacity-30" />
+            <p>{t("access.qualitative.emptyReadOnly")}</p>
+          </div>
+        ) : (
+          <div lang={lang} dir={dirFor(lang)} className="space-y-4">
+            {entries.map((entry: QualitativeEntry | DonorQualitativeEntry) => <ReadOnlyEntryCard key={entry.id} entry={entry} lang={lang} />)}
+          </div>
+        )
+      ) : entries.length === 0 ? (
         <div className="card-surface p-8 text-center text-muted-foreground">
           <MessageSquare className="h-10 w-10 mx-auto mb-3 opacity-30" />
           <p>No qualitative data entries yet.</p>
@@ -210,17 +319,18 @@ export function QualitativeCards({ projectId }: { projectId: string }) {
         entries.map((entry: any) => {
           const Icon = typeIcons[entry.entryType] || FileText;
           const isExpanded = expandedId === entry.id;
-          const themes: string[] = Array.isArray(entry.themes) ? entry.themes : [];
+          const themes: string[] = Array.isArray(entry.themes) ? entry.themes.filter((theme: unknown): theme is string => typeof theme === "string") : [];
           return (
             <div key={entry.id}
               className="card-surface p-5 hover:border-border-strong transition-colors cursor-pointer"
               onClick={() => setExpandedId(isExpanded ? null : entry.id)}>
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-start gap-3">
-                  <Icon className="h-5 w-5 text-muted-foreground mt-0.5" />
-                  <div>
-                    <h3 className="text-sm font-semibold">{entry.title}</h3>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+              {/* Wraps at 375 px: the AI Analyze button moves under the title instead of running past the card. */}
+              <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <Icon aria-hidden="true" className="h-5 w-5 shrink-0 text-muted-foreground mt-0.5" />
+                  <div className="min-w-0">
+                    <h3 dir="auto" className="text-sm font-semibold break-words">{entry.title}</h3>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-muted-foreground">
                       <Badge variant="outline" className="text-[10px]">{typeLabels[entry.entryType] || entry.entryType}</Badge>
                       {entry.participants && <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {entry.participants}</span>}
                       {entry.location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {entry.location}</span>}
@@ -228,29 +338,15 @@ export function QualitativeCards({ projectId }: { projectId: string }) {
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   {!entry.themes?.length && (
                     <Button variant="ghost" size="sm" className="text-xs" onClick={(e) => handleAiCode(entry.id, e)}>
-                      <Brain className="h-3 w-3 mr-1" /> AI Analyze
+                      <Brain aria-hidden="true" className="h-3 w-3 me-1" /> AI Analyze
                     </Button>
-                  )}
-                  {entry.sentiment && (
-                    <span className="flex items-center gap-1.5">
-                      <span className={`h-2 w-2 rounded-full ${sentimentColor[entry.sentiment] || sentimentColor.neutral}`} />
-                      <span className="text-xs text-muted-foreground capitalize">{entry.sentiment}</span>
-                    </span>
                   )}
                 </div>
               </div>
-              {themes.length > 0 && (
-                <div className="flex gap-1.5 flex-wrap mb-3">
-                  {themes.map((t: string) => (
-                    <span key={t} className="text-[10px] px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground font-medium capitalize">
-                      {t.replace(/_/g, ' ')}
-                    </span>
-                  ))}
-                </div>
-              )}
+              <AiCodedFindings sentiment={entry.sentiment} themes={themes} lang={lang} />
               {isExpanded && (
                 <div className="mt-3 pt-3 border-t animate-fade-in">
                   <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{entry.content?.substring(0, 2000)}</p>
