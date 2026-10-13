@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { DirectionProvider } from "@radix-ui/react-direction";
 import { useTranslation } from "react-i18next";
 import type { AcceptKpiSuggestionResponse, Indicator, KpiSuggestion, ResultNode } from "@/types/api";
+import type { KpiShownErrorCode } from "@/lib/constants";
 import { dirFor, type AppLanguage } from "@/i18n";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -14,8 +15,8 @@ import { IndicatorForm } from "@/components/project/IndicatorForm";
  * in Arabic the whole dialog is right-to-left. Mode "accept" is Edit & accept
  * of a KPI suggestion (knowledge/kpi-assistant-spec.md §A7; design section
  * 9.5): titled "Edit and accept the suggestion", it closes after the accept
- * (then `onAccepted`) or after a 409, and `onCloseAutoFocus` lets the
- * suggestion list move focus to the next card.
+ * (then `onAccepted`) or after a 409 (then `onConflict` with its code), and
+ * `onCloseAutoFocus` lets the suggestion list move focus to the next card.
  */
 const TITLE_KEY = {
   create: "indicatorForm.titleCreate",
@@ -35,6 +36,7 @@ export function IndicatorDialog({
   initialLang,
   onCloseAutoFocus,
   onAccepted,
+  onConflict,
 }: {
   mode: "create" | "edit" | "accept";
   projectId: string;
@@ -52,6 +54,8 @@ export function IndicatorDialog({
   onCloseAutoFocus?: (event: Event) => void;
   /** Accept mode: called with the accept response after the dialog closed (the form already showed the toast). */
   onAccepted?: (response: AcceptKpiSuggestionResponse) => void;
+  /** Accept mode: the accept answered 409 with this code (the dialog closes; the form already showed the toast). */
+  onConflict?: (code: KpiShownErrorCode) => void;
 }) {
   const userLang = useUserLanguage();
   const [chosenLang, setChosenLang] = useState<AppLanguage | null>(null);
@@ -94,6 +98,7 @@ export function IndicatorDialog({
             }}
             onSaved={() => setOpen(false)}
             onCancel={() => setOpen(false)}
+            onConflict={onConflict}
           />
         </DirectionProvider>
       </DialogContent>

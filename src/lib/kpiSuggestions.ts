@@ -48,28 +48,47 @@ export const KPI_RESULT_POLL_CAP_MS = 2 * 60_000;
 /** How long a framework run is polled before "taking longer" + Refresh (design 7.4). */
 export const KPI_FRAMEWORK_POLL_CAP_MS = 10 * 60_000;
 
-type RunTiming = Pick<KpiRun, "status" | "scope" | "createdAt">;
+type RunTiming = Pick<KpiRun, "status" | "scope">;
 
 function toMs(now: Date | number): number {
   return typeof now === "number" ? now : now.getTime();
 }
 
-/** Milliseconds since the run was created (0 when the date is unreadable or in the future, e.g. clock skew). */
-export function runElapsedMs(run: Pick<KpiRun, "createdAt">, now: Date | number): number {
+/**
+ * When a run started on the client's clock (design 7.4), so polling never compares the server's clock with the
+ * client's (a client clock minutes ahead would otherwise stop polling at once; review TQ-07). A run this client
+ * requested uses the time its request started (the caller keeps it). A run it did not start (resumed from the list
+ * after a reload, or followed after 409 run_in_progress) takes the run's age by the server's own clock back from
+ * `seenAt`, the client time it was seen: `serverNow − createdAt` (the server's clock when it answered), or
+ * `updatedAt − createdAt` (the last heartbeat, at most 30 s ago) from a server that does not send serverNow.
+ */
+export function runStartedAtOnClient(run: Pick<KpiRun, "createdAt" | "updatedAt" | "serverNow">, seenAt: number): number {
   const created = Date.parse(run.createdAt);
-  if (!Number.isFinite(created)) return 0;
-  return Math.max(0, toMs(now) - created);
+  const serverNow = run.serverNow ? Date.parse(run.serverNow) : Number.NaN;
+  const until = Number.isFinite(serverNow) ? serverNow : Date.parse(run.updatedAt);
+  const serverAge = Number.isFinite(created) && Number.isFinite(until) ? Math.max(0, until - created) : 0;
+  return seenAt - serverAge;
+}
+
+/** Milliseconds since `startedAt` (client clock; 0 when `startedAt` is unreadable or still ahead). */
+export function runElapsedMs(startedAt: number, now: Date | number): number {
+  if (!Number.isFinite(startedAt)) return 0;
+  return Math.max(0, toMs(now) - startedAt);
+}
+
+/** How long a run of this scope is polled (design 7.4): 2 minutes, or 10 minutes for a framework run. */
+export function kpiPollCapMs(scope: KpiRun["scope"]): number {
+  return scope === "framework" ? KPI_FRAMEWORK_POLL_CAP_MS : KPI_RESULT_POLL_CAP_MS;
 }
 
 /**
- * Whether a run should still be polled (design 7.4): it is running and less than 2 minutes old (result and
- * alternatives scope) or 10 minutes old (framework scope), counted from `createdAt`. After that the UI shows
- * "taking longer" with Refresh.
+ * Whether a run should still be polled (design 7.4): it is running and started less than 2 minutes ago (result and
+ * alternatives scope) or 10 minutes ago (framework scope), `startedAt` on the client's clock (runStartedAtOnClient).
+ * After that the UI shows "taking longer" with Refresh.
  */
-export function kpiRunNeedsRefresh(run: RunTiming, now: Date | number): boolean {
+export function kpiRunNeedsRefresh(run: RunTiming, startedAt: number, now: Date | number): boolean {
   if (run.status !== "running") return false;
-  const cap = run.scope === "framework" ? KPI_FRAMEWORK_POLL_CAP_MS : KPI_RESULT_POLL_CAP_MS;
-  return runElapsedMs(run, now) < cap;
+  return runElapsedMs(startedAt, now) < kpiPollCapMs(run.scope);
 }
 
 /**
@@ -77,12 +96,30 @@ export function kpiRunNeedsRefresh(run: RunTiming, now: Date | number): boolean 
  * 20 s, then every 5 s, then every 10 s after one minute; `false` once kpiRunNeedsRefresh is false (finished, or past
  * the cap).
  */
-export function kpiPollInterval(run: RunTiming, now: Date | number): number | false {
-  if (!kpiRunNeedsRefresh(run, now)) return false;
-  const elapsed = runElapsedMs(run, now);
+export function kpiPollInterval(run: RunTiming, startedAt: number, now: Date | number): number | false {
+  if (!kpiRunNeedsRefresh(run, startedAt, now)) return false;
+  const elapsed = runElapsedMs(startedAt, now);
   if (elapsed < 20_000) return run.scope === "framework" ? 3_000 : 2_000;
   if (elapsed < 60_000) return 5_000;
   return 10_000;
+}
+
+/**
+ * The next client time (ms, after `now`) at which a running run passes its polling cap, or null when none will. The
+ * provider wakes up then, so "taking longer" and Refresh appear even when no poll answer changes anything (review
+ * UX-01: polling stops at the cap, and identical answers do not re-render).
+ */
+export function nextPollCapAt(
+  entries: Iterable<{ run: RunTiming | null; startedAt: number; failed: boolean }>,
+  now: number,
+): number | null {
+  let next: number | null = null;
+  for (const entry of entries) {
+    if (entry.failed || !entry.run || entry.run.status !== "running") continue;
+    const at = entry.startedAt + kpiPollCapMs(entry.run.scope);
+    if (at > now && (next === null || at < next)) next = at;
+  }
+  return next;
 }
 
 /**
@@ -301,15 +338,20 @@ export function rejectEffectKeys(reason: SuggestionRejectReason, hasLibraryId: b
 // ------------------------------------------------------------- texts, errors
 
 /**
- * A validation note in the UI language (design 9.2, 9.6): `kpi.warnings.<code>` with the note's params, the level
- * translated, and the English message as the fallback (a code the frontend does not know yet).
+ * A validation note in the UI language (design 9.2, 9.6): `kpi.warnings.<code>` with the note's params, the levels
+ * (`level`, and `entryLevel` of level_mismatch_library) translated, and the English message as the fallback (a code
+ * the frontend does not know yet).
  */
 export function warningText(t: TFunction, warning: KpiWarning): string {
   const params = warning.params ?? {};
-  const level = typeof params.level === "string" ? t(`level.${params.level}`, { defaultValue: params.level }) : undefined;
+  const levels: Record<string, string> = {};
+  for (const key of ["level", "entryLevel"] as const) {
+    const value = params[key];
+    if (typeof value === "string") levels[key] = t(`level.${value}`, { defaultValue: value }) as string;
+  }
   return t(`kpi.warnings.${warning.code}`, {
     ...params,
-    ...(level !== undefined && { level }),
+    ...levels,
     defaultValue: warning.message,
   }) as string;
 }
@@ -328,6 +370,46 @@ export function requestErrorCode(err: unknown): KpiShownErrorCode {
   return "internal";
 }
 
+/** Why a scope has nothing to suggest (422 nothing_to_suggest `details.reason`; backend requests.ts). */
+export const NOTHING_TO_SUGGEST_REASONS = ["no_results", "level_cap", "donor_cap"] as const;
+export type NothingToSuggestReason = (typeof NOTHING_TO_SUGGEST_REASONS)[number];
+
+/**
+ * Who reached an hourly AI limit (429 rate_limited `details.scope`; backend middleware/rateLimit.ts): `user` (aiLimiter,
+ * this person's AI requests of every kind together) or `organisation` (kpiOrgLimiter, everyone's KPI suggestions).
+ */
+export const RATE_LIMIT_SCOPES = ["user", "organisation"] as const;
+export type RateLimitScope = (typeof RATE_LIMIT_SCOPES)[number];
+
+/** The i18n contexts of KPI error messages (kpi.errors.<code>_<context>). */
+export type KpiErrorContext = NothingToSuggestReason | RateLimitScope;
+
+const ERROR_CONTEXTS: Partial<Record<KpiShownErrorCode, { detail: string; values: readonly string[] }>> = {
+  nothing_to_suggest: { detail: "reason", values: NOTHING_TO_SUGGEST_REASONS },
+  rate_limited: { detail: "scope", values: RATE_LIMIT_SCOPES },
+};
+
+/**
+ * The i18n context of a failed request's message, when the UI knows it: a 422 nothing_to_suggest's `details.reason`
+ * (kpi.errors.nothing_to_suggest_no_results, _level_cap or _donor_cap) or a 429 rate_limited's `details.scope`
+ * (kpi.errors.rate_limited_user or _organisation; review UX-08); else undefined (the generic message, e.g. a 429 of
+ * the per-minute limits, which carry no code).
+ */
+export function requestErrorContext(err: unknown): KpiErrorContext | undefined {
+  const context = ERROR_CONTEXTS[requestErrorCode(err)];
+  if (!context) return undefined;
+  const value = (err as { details?: Record<string, unknown> } | null)?.details?.[context.detail];
+  return typeof value === "string" && context.values.includes(value) ? (value as KpiErrorContext) : undefined;
+}
+
+/**
+ * The message of a KPI error in the language of `t` (design 9.2, 9.4): `kpi.errors.<code>`, with the reason as the
+ * i18n context when there is one (requestErrorContext; an unknown context falls back to the generic message).
+ */
+export function kpiErrorText(t: TFunction, code: KpiShownErrorCode, context?: string | null): string {
+  return (context ? t(`kpi.errors.${code}`, { context }) : t(`kpi.errors.${code}`)) as string;
+}
+
 /** The error code shown for a failed run (KpiRun.errorCode; an unknown or missing code is internal). */
 export function runErrorCode(run: Pick<KpiRun, "status" | "errorCode">): KpiShownErrorCode | null {
   if (run.status !== "failed") return null;
@@ -338,7 +420,7 @@ export function runErrorCode(run: Pick<KpiRun, "status" | "errorCode">): KpiShow
 /** Errors a Retry cannot fix (design 9.4: these show the message without Retry). */
 const NOT_RETRYABLE: ReadonlySet<KpiShownErrorCode> = new Set<KpiShownErrorCode>([
   "ai_not_configured", "not_suggestable", "no_framework", "nothing_to_suggest", "too_many_results", "budget_reached",
-  "project_archived", "already_decided", "duplicate",
+  "project_archived", "already_decided", "duplicate", "source_has_data", "not_editable",
 ]);
 
 /** Whether the error state offers Retry. */

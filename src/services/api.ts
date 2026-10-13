@@ -53,6 +53,8 @@ const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').t
 
 class ApiClient {
   private token: string | null = null;
+  /** The token refresh in flight, shared by every request that got a 401 meanwhile (tryRefresh). */
+  private refreshing: Promise<boolean> | null = null;
 
   /**
    * Stores a new access token (sign-in or refresh). The saved profile takes the token's role, so a
@@ -125,27 +127,16 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    let response: Response;
-    try {
-      response = await fetch(`${API_BASE}${endpoint}`, {
-        ...options,
-        headers,
-      });
-    } catch (err) {
-      throw new Error(err instanceof Error && err.message ? err.message : 'Network error — please check your connection');
-    }
+    let response = await this.fetchOnce(endpoint, options, headers);
 
     if (response.status === 401) {
-      // Try refresh
-      const refreshed = await this.tryRefresh();
-      if (refreshed) {
-        headers['Authorization'] = `Bearer ${this.getToken()}`;
-        const retry = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-        if (retry.ok) return { data: await this.parseBody<T>(retry), status: retry.status };
-      }
-      this.clearToken();
-      window.location.href = '/';
-      throw new ApiError('Unauthorized', 401);
+      // The access token expired: refresh it once and repeat the request. Only a failed refresh or a second 401
+      // signs the user out; any other answer to the repeated request is handled like a first answer, so its
+      // status, code and details (e.g. 409 already_decided) reach the screen.
+      if (!(await this.tryRefresh())) this.signOutExpired();
+      headers['Authorization'] = `Bearer ${this.getToken()}`;
+      response = await this.fetchOnce(endpoint, options, headers);
+      if (response.status === 401) this.signOutExpired();
     }
 
     if (!response.ok) {
@@ -161,13 +152,43 @@ class ApiClient {
     return { data: await this.parseBody<T>(response), status: response.status };
   }
 
+  /** One fetch of `endpoint`; a request that never got an answer (offline) throws an Error without a status. */
+  private async fetchOnce(endpoint: string, options: RequestInit, headers: Record<string, string>): Promise<Response> {
+    try {
+      return await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
+    } catch (err) {
+      throw new Error(err instanceof Error && err.message ? err.message : 'Network error — please check your connection');
+    }
+  }
+
+  /** The session cannot be renewed: sign out, go to the sign-in page and fail the request with 401. */
+  private signOutExpired(): never {
+    this.clearToken();
+    window.location.href = '/';
+    throw new ApiError('Unauthorized', 401);
+  }
+
   /** JSON body of a successful response; undefined for an empty body (e.g. 204). */
   private async parseBody<T>(response: Response): Promise<T> {
     const text = await response.text();
     return (text ? JSON.parse(text) : undefined) as T;
   }
 
-  private async tryRefresh(): Promise<boolean> {
+  /**
+   * Renews the access token with the refresh token. Requests that expire together (e.g. the KPI run polls and the
+   * suggestion list) share one refresh, so a burst of 401s sends one POST /auth/refresh: the per-IP authLimiter counts
+   * every refresh, and a refused refresh signs the user out.
+   */
+  private tryRefresh(): Promise<boolean> {
+    if (!this.refreshing) {
+      this.refreshing = this.refreshOnce().finally(() => {
+        this.refreshing = null;
+      });
+    }
+    return this.refreshing;
+  }
+
+  private async refreshOnce(): Promise<boolean> {
     const refreshToken = localStorage.getItem('raqib_refresh_token');
     if (!refreshToken) return false;
     try {

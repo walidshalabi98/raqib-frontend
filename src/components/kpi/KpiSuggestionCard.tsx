@@ -60,7 +60,8 @@ export function KpiSuggestionCard({ suggestion, result, nodes, aiLabelId, lang, 
   const [expanded, setExpanded] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const rejectButton = useRef<HTMLButtonElement>(null);
-  const acceptedViaDialog = useRef(false);
+  /** The Edit & accept dialog closed because the card was decided (accepted, or 409 already decided or stale). */
+  const decidedViaDialog = useRef(false);
   const accept = useAcceptKpiSuggestion(kpi.projectId, kpi.frameworkId);
   const busy = accept.isPending;
 
@@ -263,12 +264,18 @@ export function KpiSuggestionCard({ suggestion, result, nodes, aiLabelId, lang, 
             suggestion={suggestion}
             initialLang={lang}
             onAccepted={() => {
-              acceptedViaDialog.current = true;
+              decidedViaDialog.current = true;
               onDecided?.("accepted", suggestion);
             }}
+            onConflict={(code) => {
+              // Decided elsewhere or expired: the card leaves the list (as for the Accept button); a duplicate stays.
+              if (code !== "already_decided" && code !== "stale") return;
+              decidedViaDialog.current = true;
+              onDecided?.("dismissed", suggestion);
+            }}
             onCloseAutoFocus={(event) => {
-              // After an accept the list moves focus to the next card; otherwise focus returns to this button.
-              if (acceptedViaDialog.current) event.preventDefault();
+              // After a decision the list moves focus to the next card; otherwise focus returns to this button.
+              if (decidedViaDialog.current) event.preventDefault();
             }}
             trigger={
               <Button

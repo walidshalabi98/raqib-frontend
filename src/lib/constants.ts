@@ -198,24 +198,25 @@ export const KPI_WARNING_CODES = [
   "library_id_unknown", "custom_reason_missing", "target_in_name", "double_barrelled", "percent_without_calculation",
   "sex_keys_from_library", "sex_added", "baseline_not_found", "target_not_found", "standard_threshold_not_found",
   "target_method_default", "output_survey_method", "impact_not_secondary", "arabic_name_missing",
-  "generic_means_of_verification", "figures_unverified", "level_adjusted", "arabic_name_from_library",
+  "generic_means_of_verification", "figures_unverified", "level_adjusted", "arabic_name_from_library", "level_mismatch_library",
   // framework (run) level
   "model_note", "unknown_result", "rejected_library_dropped", "duplicate_in_run", "near_duplicate", "result_cap",
-  "accountability_added", "accountability_missing", "result_failed", "keyword_fallback",
+  "accountability_added", "accountability_missing", "result_failed", "result_empty", "keyword_fallback",
   // accept response (not stored on a suggestion)
   "donor_cap_exceeded",
 ] as const satisfies readonly KpiWarningCode[];
 
 /**
  * Error codes the KPI UI translates (kpi.errors.<code>; design 9.2): the run codes (KpiRun.errorCode) and the request
- * codes (ApiError.code of the KPI routes, plus rate_limited for a 429 without a code). Never shown raw.
+ * codes (ApiError.code of the KPI routes; rate_limited also for a 429 without a code; conflict from any write route
+ * when a simultaneous change won). Never shown raw.
  */
 export const KPI_ERROR_CODES_SHOWN = [
   // run (KpiRun.errorCode)
   "ai_not_configured", "ai_refused", "ai_unavailable", "ai_invalid_output", "interrupted", "stale", "internal",
   // request (ApiError.code / HTTP status)
   "run_in_progress", "rate_limited", "already_decided", "not_suggestable", "no_framework", "nothing_to_suggest",
-  "too_many_results", "budget_reached", "project_archived", "duplicate",
-] as const satisfies readonly (KpiErrorCode | KpiRequestErrorCode | "rate_limited")[];
+  "too_many_results", "budget_reached", "project_archived", "duplicate", "source_has_data", "not_editable", "conflict",
+] as const satisfies readonly (KpiErrorCode | KpiRequestErrorCode | "rate_limited" | "conflict")[];
 
 export type KpiShownErrorCode = (typeof KPI_ERROR_CODES_SHOWN)[number];

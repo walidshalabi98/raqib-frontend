@@ -6,6 +6,7 @@ import { api } from "@/services/api";
 import { ApiError } from "@/lib/apiError";
 import { queryKeys } from "@/lib/queryKeys";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { invalidateFrameworkData } from "@/hooks/useFrameworkData";
 import {
   useAcceptKpiSuggestion,
   useIndicatorQuality,
@@ -51,6 +52,20 @@ beforeEach(() => {
 });
 
 describe("useKpiSuggestions hooks", () => {
+  it("refetches the quality check whenever the framework data is refreshed (indicator edit, approve, result change; UX-07)", async () => {
+    const officer = setup();
+    vi.mocked(api.getIndicatorQuality)
+      .mockResolvedValueOnce([makeIndicatorQuality({ indicatorId: "i-9", qualityBand: "weak", qualityScore: 55, needsAlternatives: true })])
+      .mockResolvedValue([makeIndicatorQuality({ indicatorId: "i-9" })]);
+    const quality = renderHook(() => useIndicatorQuality("fw-1"), { wrapper: officer.wrapper });
+    await waitFor(() => expect(quality.result.current.data?.[0].qualityBand).toBe("weak"));
+    expect(api.getIndicatorQuality).toHaveBeenCalledTimes(1);
+    // What IndicatorForm, IndicatorTable (Approve) and ResultsChainPanel call after a change.
+    await invalidateFrameworkData(officer.client, { projectId: "p-1", frameworkId: "fw-1" });
+    await waitFor(() => expect(quality.result.current.data?.[0].qualityBand).toBe("strong"));
+    expect(api.getIndicatorQuality).toHaveBeenCalledTimes(2);
+  });
+
   it("reads the status and the quality check for KPI roles only", async () => {
     const officer = setup();
     const status = renderHook(() => useKpiAssistantStatus(), { wrapper: officer.wrapper });

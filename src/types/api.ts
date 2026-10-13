@@ -815,7 +815,11 @@ export type KpiRequestErrorCode =
   | "too_many_results"
   | "budget_reached"
   | "project_archived"
-  | "duplicate";
+  | "duplicate"
+  /** Accept with replaceSource: the indicator to replace holds data points or linked services (409). */
+  | "source_has_data"
+  /** Accept edits to a field the suggestion's draft does not hold (status, current value, actual dates, milestones; 400). */
+  | "not_editable";
 
 /** Quality badge: score ≥ 85 strong, 65–84 review, < 65 weak. */
 export type QualityBand = "strong" | "review" | "weak";
@@ -843,6 +847,7 @@ export type KpiWarningCode =
   | "figures_unverified"
   | "level_adjusted"
   | "arabic_name_from_library"
+  | "level_mismatch_library"
   // framework (run) level
   | "model_note"
   | "unknown_result"
@@ -853,6 +858,7 @@ export type KpiWarningCode =
   | "accountability_added"
   | "accountability_missing"
   | "result_failed"
+  | "result_empty"
   | "keyword_fallback"
   // accept response
   | "donor_cap_exceeded";
@@ -991,6 +997,11 @@ export interface KpiRun {
   createdAt: string;
   updatedAt: string;
   finishedAt: string | null;
+  /**
+   * The server's clock when the run was read (ISO). serverNow − createdAt is the run's age, so the client measures its
+   * polling cap on its own clock without comparing clocks (TQ-07). Missing from older servers.
+   */
+  serverNow?: string;
 }
 
 /** Body of POST /api/projects/:id/kpi-suggestions. */
@@ -1034,11 +1045,23 @@ export interface KpiSuggestionList {
   latestFrameworkRun: KpiRun | null;
 }
 
+/**
+ * Body of POST /api/kpi-suggestions/:id/accept: `edits` (only draft fields; others answer 400 not_editable) and
+ * `replaceSource: true` for an alternative of an existing indicator, which deletes that indicator in the same
+ * transaction (409 source_has_data when it holds data or linked services).
+ */
+export interface AcceptKpiSuggestionBody {
+  edits?: IndicatorInput;
+  replaceSource?: boolean;
+}
+
 /** 201 body of POST /api/kpi-suggestions/:id/accept (warnings: donor_cap_exceeded only, today). */
 export interface AcceptKpiSuggestionResponse {
   indicator: Indicator;
   suggestion: KpiSuggestion;
   warnings: KpiWarning[];
+  /** The indicator this alternative replaced (replaceSource), else null. Missing from older servers. */
+  replacedIndicatorId?: string | null;
 }
 
 /** Body of POST /api/kpi-suggestions/:id/reject. The note must not contain personal data; it is stored redacted. */

@@ -348,6 +348,7 @@
       "noIntermediateTargets": "No intermediate targets.",
       "provenance": "Raqib records where the indicator came from; it cannot be edited.",
       "provenanceAccept": "Set by Raqib when you accept: AI suggested.",
+      "acceptLater": "Status, current value, actual dates and milestones are set after you accept the indicator.",
       "libraryId": "ID of an entry in the indicator library, for example FS-01.",
       "standardReferenceCode": "Code in the donor or standard framework, for example GERF 2.38 or ECHO KRI.",
       "noMilestones": "No milestones."
@@ -610,8 +611,12 @@
     "suggestFramework": "Suggest KPIs for all results",
     "suggestAgain": "Suggest again",
     "listLabel": "Suggested indicators for {{code}}",
+    "ready_zero": "No new suggestions for {{code}}",
     "ready_one": "{{count}} suggestion ready for {{code}}",
     "ready_other": "{{count}} suggestions ready for {{code}}",
+    "readyFramework_zero": "No new suggestions across all results",
+    "readyFramework_one": "{{count}} suggestion ready across all results",
+    "readyFramework_other": "{{count}} suggestions ready across all results",
     "empty": "No new suggestions for {{code}}. Nothing else in the library fits, or your organisation rejected the matches.",
     "listFailed": "Could not load the KPI suggestions.",
     "notConfigured": {
@@ -717,7 +722,9 @@
     "alternatives": {
       "groupLabel": "Alternatives to “{{name}}”",
       "groupLabelIndicator": "Alternatives to an existing indicator",
-      "groupLabelSuggestion": "Alternatives to an earlier suggestion"
+      "groupLabelSuggestion": "Alternatives to an earlier suggestion",
+      "noneFor": "No alternatives found for “{{name}}”. Nothing else in the library fits, or your organisation rejected the matches.",
+      "none": "No alternatives found for this indicator. Nothing else in the library fits, or your organisation rejected the matches."
     },
     "newResult": {
       "prompt": "Raqib can suggest indicators for {{code}}."
@@ -740,6 +747,8 @@
       "rejectFailed": "Could not reject the suggestion",
       "requestFailed": "Could not prepare suggestions",
       "alternativesQueued": "Alternatives are being prepared. Review them on the framework page.",
+      "alternativesReady_one": "{{count}} alternative ready. Review it on the framework page.",
+      "alternativesReady_other": "{{count}} alternatives ready. Review them on the framework page.",
       "openFramework": "Open the framework"
     },
     "errors": {
@@ -750,16 +759,24 @@
       "interrupted": "Preparing suggestions was interrupted. Try again.",
       "stale": "The framework changed while suggestions were prepared. Try again.",
       "run_in_progress": "Suggestions are already being prepared here.",
-      "rate_limited": "You have asked for many suggestions this hour. Try again later.",
+      "rate_limited": "Too many requests right now. Wait a minute and try again.",
+      "rate_limited_user": "You have reached your hourly limit of AI requests (KPI suggestions, frameworks, reports and analyses count together). Try again later.",
+      "rate_limited_organisation": "Your organisation has reached its hourly limit of KPI suggestions. Try again later.",
       "already_decided": "Someone already decided on this suggestion. The list was refreshed.",
       "not_suggestable": "Raqib suggests indicators for goals, outcomes and outputs only. Link the indicator to one of them first.",
       "no_framework": "Create or generate a framework first.",
       "internal": "Something went wrong while preparing suggestions. Try again.",
       "nothing_to_suggest": "Every result already has as many indicators as allowed, so there is nothing to suggest.",
+      "nothing_to_suggest_no_results": "There is nothing to suggest yet: add a goal (impact), outcome or output to the results chain first.",
+      "nothing_to_suggest_level_cap": "Every result already has as many indicators as its level allows, so there is nothing to suggest.",
+      "nothing_to_suggest_donor_cap": "Every result already has as many indicators as the donor allows, so there is nothing to suggest.",
       "too_many_results": "This framework has too many results to suggest for all at once. Suggest KPIs for one result at a time.",
       "budget_reached": "Your organisation has reached today's AI budget. Try again tomorrow or ask your administrator.",
       "project_archived": "This project is archived.",
-      "duplicate": "This result already has this indicator. The list was refreshed."
+      "duplicate": "This result already has this indicator. The list was refreshed.",
+      "source_has_data": "The indicator this alternative would replace already has data or linked services, so it cannot be removed. Accept the alternative without replacing it, then decide what to do with the old indicator.",
+      "not_editable": "Status, current value, actual dates and milestones cannot be set while accepting a suggestion. Accept it first, then edit the indicator.",
+      "conflict": "This change clashed with another change made at the same time, so nothing was saved. Try again."
     },
     "warnings": {
       "library_id_unknown": "Library id {{libraryId}} does not exist, so this is treated as a custom indicator.",
@@ -781,6 +798,7 @@
       "generic_means_of_verification": "The means of verification is too general; to be confirmed by the M&E officer.",
       "figures_unverified": "Text with numbers not found in the documents or the library was removed: {{figures}}.",
       "level_adjusted": "Level changed to {{level}} to match result {{code}}.",
+      "level_mismatch_library": "Library indicator {{libraryId}} is an {{entryLevel}} indicator; {{code}} is an {{level}}. Check that it measures this level.",
       "model_note": "AI note: {{message}}",
       "unknown_result": "A suggestion for an unknown result ({{code}}) was dropped.",
       "rejected_library_dropped": "A suggestion using {{libraryId}} was dropped because your organisation rejected it.",
@@ -790,6 +808,7 @@
       "accountability_added": "Humanitarian project without an accountability indicator: {{libraryId}} was added to {{code}}.",
       "accountability_missing": "Humanitarian project without an accountability indicator.",
       "result_failed": "No suggestions for {{code}}: the AI answer could not be used or came too late. Try this result again.",
+      "result_empty": "No suggestions were kept for {{code}}. Ask for suggestions for this result again or add an indicator yourself.",
       "keyword_fallback": "Semantic search is not available, so candidates were matched by keywords."
     }
   }

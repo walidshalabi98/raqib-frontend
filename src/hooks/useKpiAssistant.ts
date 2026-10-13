@@ -22,7 +22,7 @@ export interface KpiRunView {
   step: KpiRunStep;
   /** `failed` also when the request itself failed (see errorFor). */
   status: "running" | "completed" | "failed";
-  /** ISO time the request started (or the run's createdAt for a run adopted after a reload). */
+  /** ISO time the request started, on the client's clock (for a run adopted after a reload: runStartedAtOnClient). */
   startedAt: string;
   /** The polling cap passed while still running: show "taking longer" and Refresh. */
   takingLonger: boolean;

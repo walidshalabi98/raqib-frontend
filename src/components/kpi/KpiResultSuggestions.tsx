@@ -1,9 +1,9 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { AlertCircle } from "lucide-react";
-import { dirFor } from "@/i18n";
-import type { Framework, KpiSuggestion, ResultNode } from "@/types/api";
+import { dirFor, type AppLanguage } from "@/i18n";
+import type { Framework, KpiRun, KpiSuggestion, ResultNode } from "@/types/api";
 import { useKpiAssistant } from "@/hooks/useKpiAssistant";
 import { queryKeys } from "@/lib/queryKeys";
 import {
@@ -43,6 +43,27 @@ function nameIn(suggestion: KpiSuggestion, lang: string): string {
   return lang === "ar" && ARABIC_LETTER.test(nameAr ?? "") ? nameAr : name;
 }
 
+type T = ReturnType<typeof useTranslation>["t"];
+
+/** Stands for the name while the label is translated (a private-use character no translation contains). */
+const NAME_SLOT = "\uE000";
+
+/**
+ * A translated label with `{{name}}` in a <bdi> carrying the name's own language (Arabic letters → ar, else en), so an
+ * English indicator name inside an Arabic label keeps its reading order and is read with the English voice (WCAG
+ * 3.1.2; review UX-12).
+ */
+function labelWithName(t: T, key: string, name: string): ReactNode {
+  const nameLang: AppLanguage = ARABIC_LETTER.test(name) ? "ar" : "en";
+  const parts = (t(key, { name: NAME_SLOT }) as string).split(NAME_SLOT);
+  return parts.map((part, index) => (index === 0 ? part : (
+    <Fragment key={index}>
+      <bdi lang={nameLang} dir="auto">{name}</bdi>
+      {part}
+    </Fragment>
+  )));
+}
+
 /**
  * The KPI Assistant under one result (knowledge/kpi-assistant-spec.md §A2, §A7; design 9.1 and 9.4): progress of a
  * result or alternatives run (KpiProgressSteps), the error state (role=alert, translated message, Retry when it can
@@ -50,7 +71,9 @@ function nameIn(suggestion: KpiSuggestion, lang: string): string {
  * cards with one "AI suggested — review before approval" label. Alternatives nest under their source; a rejected
  * card becomes a stub offering alternatives (trigger 3). Focus moves to the stub after a rejection and to the next
  * card (else the previous, else the Suggest KPIs button) after an accept or dismiss; it never moves when a run
- * finishes. A visually hidden status announces "N suggestions ready for O1" and "Indicator added to O1".
+ * finishes. A visually hidden status announces "N suggestions ready for O1" and "Indicator added to O1". The empty
+ * state follows what the last run returned (suggestionCount 0: "No new suggestions", or "No alternatives found" for an
+ * alternatives run, shown next to other cards too) until the user decides a card (review UX-04).
  */
 export function KpiResultSuggestions({ result, nodes, focusFallback }: KpiResultSuggestionsProps) {
   const kpi = useKpiAssistant();
@@ -63,6 +86,8 @@ export function KpiResultSuggestions({ result, nodes, focusFallback }: KpiResult
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
   const [announcement, setAnnouncement] = useState("");
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
+  /** The finished run the user last decided a card after: its empty state is no longer news. */
+  const [decidedAfterRun, setDecidedAfterRun] = useState<string | null>(null);
   const orderRef = useRef<string[]>([]);
   const announcedRun = useRef<string | null>(null);
   const focusFallbackRef = useRef(focusFallback);
@@ -71,7 +96,7 @@ export function KpiResultSuggestions({ result, nodes, focusFallback }: KpiResult
   const view = kpi.enabled ? kpi.runFor({ resultId: result.id }) : null;
   const finishedRun = view?.status === "completed" ? view.run : null;
 
-  // "N suggestions ready for O1", once per finished run (focus does not move).
+  // "N suggestions ready for O1" ("No new suggestions for O1" for none), once per finished run (focus does not move).
   useEffect(() => {
     if (!finishedRun || announcedRun.current === finishedRun.id) return;
     announcedRun.current = finishedRun.id;
@@ -108,6 +133,7 @@ export function KpiResultSuggestions({ result, nodes, focusFallback }: KpiResult
   const alternativesUnavailable = running || frameworkRunning || kpi.aiConfigured === false;
 
   const onDecided = (outcome: Decision, suggestion: KpiSuggestion) => {
+    if (finishedRun) setDecidedAfterRun(finishedRun.id);
     if (outcome === "rejected") {
       setStubs((prev) => ({ ...prev, [suggestion.id]: { ...suggestion, status: "rejected" } }));
       setFocusRequest({ kind: "stub", id: suggestion.id });
@@ -130,17 +156,37 @@ export function KpiResultSuggestions({ result, nodes, focusFallback }: KpiResult
     return lang === "ar" && indicator.indicatorTextAr ? indicator.indicatorTextAr : indicator.indicatorText;
   };
 
-  const groupLabel = (source: AlternativesGroup["source"]) => {
+  const groupLabel = (source: AlternativesGroup["source"]): ReactNode => {
     const name = nameOfSource(source);
-    if (name) return t("kpi.alternatives.groupLabel", { name });
+    if (name) return labelWithName(t, "kpi.alternatives.groupLabel", name);
     return t(source.kind === "indicator" ? "kpi.alternatives.groupLabelIndicator" : "kpi.alternatives.groupLabelSuggestion");
   };
+
+  /** The source of an alternatives run (a suggestion or an existing indicator), or null. */
+  const sourceOfRun = (run: KpiRun): AlternativesGroup["source"] | null => {
+    if (run.sourceSuggestionId) return { kind: "suggestion", id: run.sourceSuggestionId };
+    if (run.sourceIndicatorId) return { kind: "indicator", id: run.sourceIndicatorId };
+    return null;
+  };
+
+  /** "No alternatives found for “<name>”." of an alternatives run that returned nothing (the name isolated). */
+  const noAlternativesLabel = (run: KpiRun): ReactNode => {
+    const source = sourceOfRun(run);
+    const name = source ? nameOfSource(source) : null;
+    return name ? labelWithName(t, "kpi.alternatives.noneFor", name) : t("kpi.alternatives.none");
+  };
+
+  // The last run returned nothing new, and the user has not decided a card since.
+  const emptyRun = finishedRun && finishedRun.suggestionCount === 0 && decidedAfterRun !== finishedRun.id && !error
+    ? finishedRun
+    : null;
 
   const renderEntry = (suggestion: KpiSuggestion) =>
     stubs[suggestion.id] ? (
       <RejectedStub
         suggestion={suggestion}
         name={nameIn(suggestion, lang)}
+        label={labelWithName(t, "kpi.rejected.stub", nameIn(suggestion, lang))}
         t={t}
         alternativesUnavailable={alternativesUnavailable}
         describedBy={kpi.aiConfigured === false ? kpiNoticeId(kpi.projectId) : undefined}
@@ -187,7 +233,11 @@ export function KpiResultSuggestions({ result, nodes, focusFallback }: KpiResult
         <KpiWarningList warnings={finishedRun.frameworkWarnings} lang={lang} />
       )}
 
-      {finishedRun && !error && !hasCards && (
+      {emptyRun && emptyRun.scope === "alternatives" && (
+        <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{noAlternativesLabel(emptyRun)}</p>
+      )}
+
+      {emptyRun && emptyRun.scope !== "alternatives" && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
           <span className="min-w-0 flex-1">{t("kpi.empty", { code: result.code })}</span>
           <Button
@@ -210,7 +260,7 @@ export function KpiResultSuggestions({ result, nodes, focusFallback }: KpiResult
               <li key={item.suggestion.id} className="min-w-0">
                 {renderEntry(item.suggestion)}
                 {item.alternatives.length > 0 && (
-                  <AlternativesList label={t("kpi.alternatives.groupLabel", { name: nameIn(item.suggestion, lang) })}>
+                  <AlternativesList label={labelWithName(t, "kpi.alternatives.groupLabel", nameIn(item.suggestion, lang))}>
                     {item.alternatives.map((alternative) => (
                       <li key={alternative.id} className="min-w-0">{renderEntry(alternative)}</li>
                     ))}
@@ -237,7 +287,7 @@ export function KpiResultSuggestions({ result, nodes, focusFallback }: KpiResult
 }
 
 /** A nested list of alternatives with a visible label. */
-function AlternativesList({ label, children }: { label: string; children: ReactNode }) {
+function AlternativesList({ label, children }: { label: ReactNode; children: ReactNode }) {
   const labelId = useId();
   return (
     <div className="mt-2 min-w-0 space-y-2 border-s-2 border-dashed ps-2 sm:ps-3">
@@ -247,12 +297,11 @@ function AlternativesList({ label, children }: { label: string; children: ReactN
   );
 }
 
-type T = ReturnType<typeof useTranslation>["t"];
-
 /** "Rejected: <name> — Would you like alternatives to this indicator? [Show alternatives] [Dismiss]" (spec §A2 trigger 3). */
 function RejectedStub({
   suggestion,
   name,
+  label,
   t,
   alternativesUnavailable,
   describedBy,
@@ -261,6 +310,8 @@ function RejectedStub({
 }: {
   suggestion: KpiSuggestion;
   name: string;
+  /** "Rejected: <name>" with the name isolated (labelWithName). */
+  label: ReactNode;
   t: T;
   alternativesUnavailable: boolean;
   /** The not-configured notice, when the AI is not set up. */
@@ -272,7 +323,7 @@ function RejectedStub({
   return (
     <article aria-labelledby={headingId} className="min-w-0 break-words rounded-md border border-dashed bg-muted/40 p-3 text-sm">
       <h4 id={headingId} tabIndex={-1} className="font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        {t("kpi.rejected.stub", { name })}
+        {label}
       </h4>
       <p className="mt-1 text-muted-foreground">{t("kpi.rejected.offerAlternatives")}</p>
       <div className="mt-2 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">

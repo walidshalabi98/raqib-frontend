@@ -150,8 +150,9 @@ function SourceCell({ indicator, lang }: { indicator: Indicator; lang: AppLangua
 /**
  * The framework's indicators as a table or a timeline, with the results chain panel (and its KPI Assistant) above.
  * Phase 4 (design section 9.5, D18): a Source column, the "AI suggested — review before approval" label until the
- * indicator itself is approved, and for org and platform admins an Approve button on unapproved indicators once the
- * framework is approved or active.
+ * indicator itself is approved (table and timeline), and for org and platform admins an Approve button on unapproved
+ * AI-made indicators in any framework status, and on every unapproved indicator once the framework is approved or
+ * active (canApproveIndicator).
  */
 export function IndicatorTable({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
@@ -409,6 +410,9 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                       <LevelBadge level={ind.level} />
                       <span className="text-sm font-medium truncate">{ind.indicatorText}</span>
                     </div>
+                    {needsAiReviewLabel(ind.provenance, ind.isApproved) && (
+                      <div lang={lang} className="mb-1"><AiSuggestedLabel lang={lang} /></div>
+                    )}
                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
                       <StatusDot status={ind.status} showLabel />
                       {ind.responsibility && <span className="flex items-center gap-1"><Users className="h-3 w-3" />{ind.responsibility}</span>}

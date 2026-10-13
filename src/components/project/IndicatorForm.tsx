@@ -14,8 +14,10 @@ import {
   INDICATOR_LEVELS,
   INDICATOR_STATUSES,
   UNIT_SUGGESTIONS,
+  type KpiShownErrorCode,
 } from "@/lib/constants";
 import {
+  ACCEPT_HIDDEN_FIELDS,
   FORM_SECTIONS,
   LIMITS,
   MAX_INTERMEDIATE_TARGETS,
@@ -44,7 +46,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { invalidateFrameworkData, useDebouncedValue } from "@/hooks/useFrameworkData";
 import { useAcceptKpiSuggestion } from "@/hooks/useKpiSuggestions";
 import { httpStatusOf } from "@/lib/apiError";
-import { acceptedToastText, requestErrorCode } from "@/lib/kpiSuggestions";
+import { acceptedToastText, kpiErrorText, requestErrorCode } from "@/lib/kpiSuggestions";
 import { cn, errorMessage } from "@/lib/utils";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -68,6 +70,9 @@ import { AiSuggestedLabel } from "@/components/common/AiSuggestedLabel";
  * blocks (as on create), the level follows the result, provenance is set by
  * Raqib ("AI suggested") and the AI label is shown. Saving accepts the
  * suggestion with only the fields the user changed (none: accepted as is).
+ * Fields that are not part of a suggestion (status, current value, actual
+ * dates, milestones: ACCEPT_HIDDEN_FIELDS) are hidden; they are edited after
+ * accepting.
  */
 
 /** Props of IndicatorForm (design section 9.5 adds accept mode, `suggestion` and `onAccepted`). */
@@ -95,6 +100,11 @@ export interface IndicatorFormProps {
   onAccepted?: (response: AcceptKpiSuggestionResponse) => void;
   /** Cancel, nothing to save, or an accept answered 409 (already decided, stale, duplicate: toast shown, list refetched). */
   onCancel: () => void;
+  /**
+   * Accept mode: an accept answered 409, with its code (already_decided, stale or duplicate), called before onCancel,
+   * so the suggestion card can leave the list and move focus (an already decided or stale card disappears).
+   */
+  onConflict?: (code: KpiShownErrorCode) => void;
 }
 
 const MAX_OPTION_TEXT = 90;
@@ -122,6 +132,7 @@ export function IndicatorForm({
   onSaved,
   onAccepted,
   onCancel,
+  onConflict,
 }: IndicatorFormProps) {
   // Accept mode without a suggestion cannot accept anything: it behaves like create.
   const accepting = mode === "accept" && suggestion !== undefined;
@@ -150,7 +161,13 @@ export function IndicatorForm({
   const [focusTarget, setFocusTarget] = useState<string | null>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
 
-  const errors = useMemo(() => blockingErrors(validateIndicatorForm(values), values, initialValues), [values, initialValues]);
+  const errors = useMemo(() => {
+    const all = blockingErrors(validateIndicatorForm(values), values, initialValues);
+    if (!accepting) return all;
+    // Hidden in accept mode (not part of a suggestion): never block on them.
+    const hidden = (key: string) => (ACCEPT_HIDDEN_FIELDS as readonly string[]).some((f) => key === f || key.startsWith(`${f}.`));
+    return Object.fromEntries(Object.entries(all).filter(([key]) => !hidden(key)));
+  }, [values, initialValues, accepting]);
   const errorKeys = Object.keys(errors);
   const warnings = useMemo(() => indicatorFormWarnings(values), [values]);
 
@@ -295,13 +312,19 @@ export function IndicatorForm({
         onAccepted?.(response);
       },
       onError: (err) => {
-        if (httpStatusOf(err) === 409) {
+        const code = requestErrorCode(err);
+        if (httpStatusOf(err) === 409 && code !== "conflict") {
           // Decided by someone else, expired (stale) or a duplicate: nothing to fix in the form; the list is refetched.
-          toast.error(t(`kpi.errors.${requestErrorCode(err)}`));
+          toast.error(kpiErrorText(t, code));
+          onConflict?.(code);
           onCancel();
           return;
         }
-        setServerError(errorMessage(err, t("kpi.toast.acceptFailed")));
+        // Anything else keeps the form and the user's edits, so Accept can be pressed again: a write conflict with a
+        // simultaneous change (409 conflict: nothing was saved), a refused field (400 not_editable) or a validation
+        // error. A code the UI knows is shown translated; otherwise the server's message.
+        const known = (err as { code?: unknown } | null)?.code === code;
+        setServerError(known ? kpiErrorText(t, code) : errorMessage(err, t("kpi.toast.acceptFailed")));
         toast.error(t("kpi.toast.acceptFailed"));
         requestAnimationFrame(() => summaryRef.current?.focus());
       },
@@ -463,11 +486,13 @@ export function IndicatorForm({
                     {INDICATOR_LEVELS.map((level) => <option key={level} value={level}>{t(`level.${level}`)}</option>)}
                   </NativeSelect>
                 </Field>
-                <Field id={fid("status")} label={t("indicatorForm.fields.status")} error={visibleError("status")}>
-                  <NativeSelect {...control("status")} value={values.status} onChange={(e) => set("status", e.target.value as IndicatorFormValues["status"])}>
-                    {INDICATOR_STATUSES.map((status) => <option key={status} value={status}>{t(`status.${status}`)}</option>)}
-                  </NativeSelect>
-                </Field>
+                {!accepting && (
+                  <Field id={fid("status")} label={t("indicatorForm.fields.status")} error={visibleError("status")}>
+                    <NativeSelect {...control("status")} value={values.status} onChange={(e) => set("status", e.target.value as IndicatorFormValues["status"])}>
+                      {INDICATOR_STATUSES.map((status) => <option key={status} value={status}>{t(`status.${status}`)}</option>)}
+                    </NativeSelect>
+                  </Field>
+                )}
               </div>
             </AccordionContent>
           </AccordionItem>
@@ -669,10 +694,12 @@ export function IndicatorForm({
                   <Input {...control("targetValue", { hint: true })} dir="auto" maxLength={LIMITS.targetValue}
                     value={values.targetValue} onChange={(e) => set("targetValue", e.target.value)} />
                 </Field>
-                <Field id={fid("currentValue")} label={t("indicatorForm.fields.currentValue")} error={visibleError("currentValue")}>
-                  <Input {...control("currentValue")} dir="auto" maxLength={LIMITS.currentValue}
-                    value={values.currentValue} onChange={(e) => set("currentValue", e.target.value)} />
-                </Field>
+                {!accepting && (
+                  <Field id={fid("currentValue")} label={t("indicatorForm.fields.currentValue")} error={visibleError("currentValue")}>
+                    <Input {...control("currentValue")} dir="auto" maxLength={LIMITS.currentValue}
+                      value={values.currentValue} onChange={(e) => set("currentValue", e.target.value)} />
+                  </Field>
+                )}
               </div>
               <Field id={fid("targetJustification")} label={t("indicatorForm.fields.targetJustification")} error={visibleError("targetJustification")}>
                 <Textarea {...control("targetJustification")} dir="auto" rows={2} maxLength={LIMITS.targetJustification}
@@ -774,56 +801,59 @@ export function IndicatorForm({
           <AccordionItem value="timeline">
             {sectionHeader("timeline")}
             <AccordionContent className="space-y-4 px-1 pt-1">
+              {accepting && <p className="text-xs text-muted-foreground">{t("indicatorForm.hints.acceptLater")}</p>}
               <div className="grid gap-4 sm:grid-cols-2">
-                {(["startDate", "endDate", "actualStartDate", "actualEndDate"] as const).map((field) => (
+                {(accepting ? (["startDate", "endDate"] as const) : (["startDate", "endDate", "actualStartDate", "actualEndDate"] as const)).map((field) => (
                   <Field key={field} id={fid(field)} label={t(`indicatorForm.fields.${field}`)} error={visibleError(field)}>
                     <Input {...control(field)} type="date" dir="ltr" value={values[field]} onChange={(e) => set(field, e.target.value)} />
                   </Field>
                 ))}
               </div>
 
-              <fieldset className="space-y-2">
-                <legend id={fid("milestones")} tabIndex={-1} className="text-sm font-medium focus:outline-none">
-                  {t("indicatorForm.fields.milestones")}
-                </legend>
-                {values.milestones.length === 0 && <p className="text-xs text-muted-foreground">{t("indicatorForm.hints.noMilestones")}</p>}
-                {values.milestones.map((row, i) => {
-                  const n = i + 1;
-                  return (
-                    <div key={i} className="grid items-start gap-2 sm:grid-cols-[2fr_1fr_auto_auto]">
-                      <Field id={fid(`milestones.${i}.label`)} label={t("indicatorForm.fields.milestoneLabel", { n })}
-                        error={visibleError(`milestones.${i}.label`)} labelClassName="text-xs">
-                        <Input {...control(`milestones.${i}.label`)} dir="auto" maxLength={LIMITS.milestoneLabel}
-                          placeholder={t("indicatorForm.placeholders.milestoneLabel")} value={row.label}
-                          onChange={(e) => setMilestone(i, { label: e.target.value })} />
-                      </Field>
-                      <Field id={fid(`milestones.${i}.date`)} label={t("indicatorForm.fields.milestoneDate", { n })}
-                        error={visibleError(`milestones.${i}.date`)} labelClassName="text-xs">
-                        <Input {...control(`milestones.${i}.date`)} type="date" dir="ltr" value={row.date}
-                          onChange={(e) => setMilestone(i, { date: e.target.value })} />
-                      </Field>
-                      <div className="flex h-10 items-center gap-2 sm:mt-6">
-                        <Checkbox id={fid(`milestones.${i}.completed`)} checked={row.completed}
-                          onCheckedChange={(checked) => setMilestone(i, { completed: checked === true })} />
-                        <Label htmlFor={fid(`milestones.${i}.completed`)} className="text-xs">
-                          {t("indicatorForm.fields.milestoneCompleted", { n })}
-                        </Label>
+              {!accepting && (
+                <fieldset className="space-y-2">
+                  <legend id={fid("milestones")} tabIndex={-1} className="text-sm font-medium focus:outline-none">
+                    {t("indicatorForm.fields.milestones")}
+                  </legend>
+                  {values.milestones.length === 0 && <p className="text-xs text-muted-foreground">{t("indicatorForm.hints.noMilestones")}</p>}
+                  {values.milestones.map((row, i) => {
+                    const n = i + 1;
+                    return (
+                      <div key={i} className="grid items-start gap-2 sm:grid-cols-[2fr_1fr_auto_auto]">
+                        <Field id={fid(`milestones.${i}.label`)} label={t("indicatorForm.fields.milestoneLabel", { n })}
+                          error={visibleError(`milestones.${i}.label`)} labelClassName="text-xs">
+                          <Input {...control(`milestones.${i}.label`)} dir="auto" maxLength={LIMITS.milestoneLabel}
+                            placeholder={t("indicatorForm.placeholders.milestoneLabel")} value={row.label}
+                            onChange={(e) => setMilestone(i, { label: e.target.value })} />
+                        </Field>
+                        <Field id={fid(`milestones.${i}.date`)} label={t("indicatorForm.fields.milestoneDate", { n })}
+                          error={visibleError(`milestones.${i}.date`)} labelClassName="text-xs">
+                          <Input {...control(`milestones.${i}.date`)} type="date" dir="ltr" value={row.date}
+                            onChange={(e) => setMilestone(i, { date: e.target.value })} />
+                        </Field>
+                        <div className="flex h-10 items-center gap-2 sm:mt-6">
+                          <Checkbox id={fid(`milestones.${i}.completed`)} checked={row.completed}
+                            onCheckedChange={(checked) => setMilestone(i, { completed: checked === true })} />
+                          <Label htmlFor={fid(`milestones.${i}.completed`)} className="text-xs">
+                            {t("indicatorForm.fields.milestoneCompleted", { n })}
+                          </Label>
+                        </div>
+                        <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:mt-6"
+                          aria-label={t("indicatorForm.actions.removeMilestone", { n })}
+                          onClick={() => set("milestones", values.milestones.filter((_, j) => j !== i))}>
+                          <Trash2 aria-hidden="true" className="h-4 w-4" />
+                        </Button>
                       </div>
-                      <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:mt-6"
-                        aria-label={t("indicatorForm.actions.removeMilestone", { n })}
-                        onClick={() => set("milestones", values.milestones.filter((_, j) => j !== i))}>
-                        <Trash2 aria-hidden="true" className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  );
-                })}
-                <FieldMessage id={`${fid("milestones")}-error`} message={visibleError("milestones")} />
-                <Button type="button" variant="outline" size="sm" disabled={values.milestones.length >= MAX_MILESTONES}
-                  onClick={() => set("milestones", [...values.milestones, { label: "", date: "", completed: false }])}>
-                  <Plus aria-hidden="true" className="me-1 h-4 w-4" />
-                  {t("indicatorForm.actions.addMilestone")}
-                </Button>
-              </fieldset>
+                    );
+                  })}
+                  <FieldMessage id={`${fid("milestones")}-error`} message={visibleError("milestones")} />
+                  <Button type="button" variant="outline" size="sm" disabled={values.milestones.length >= MAX_MILESTONES}
+                    onClick={() => set("milestones", [...values.milestones, { label: "", date: "", completed: false }])}>
+                    <Plus aria-hidden="true" className="me-1 h-4 w-4" />
+                    {t("indicatorForm.actions.addMilestone")}
+                  </Button>
+                </fieldset>
+              )}
             </AccordionContent>
           </AccordionItem>
         </Accordion>

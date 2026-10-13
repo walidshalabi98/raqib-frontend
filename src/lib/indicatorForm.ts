@@ -264,15 +264,18 @@ export function needsAiReviewLabel(
 /**
  * Whether the indicator table offers "Approve" for an indicator (design D18 and section 9.5): a role with the
  * "framework.approve" capability (src/lib/permissions.ts: org and platform admins, as for PATCH
- * /api/indicators/:id/approve on the server), an indicator not yet approved, in a framework that is already approved or
- * active (before that, approving the framework approves its indicators).
+ * /api/indicators/:id/approve on the server) and an indicator not yet approved, either AI-made (whatever the framework
+ * status: an accepted KPI suggestion in a draft or review framework keeps its "AI suggested" label until approved, and
+ * the framework tab has no framework approval; review UX-03) or in a framework that is already approved or active
+ * (before that, approving the framework approves its other indicators).
  */
 export function canApproveIndicator(
   role: string | null | undefined,
-  indicator: { isApproved: boolean | null | undefined },
+  indicator: { isApproved: boolean | null | undefined; provenance?: IndicatorProvenance | null },
   frameworkStatus: FrameworkStatus | null | undefined,
 ): boolean {
-  return can(role, "framework.approve") && !indicator.isApproved && isFrameworkApproved(frameworkStatus);
+  if (!can(role, "framework.approve") || indicator.isApproved) return false;
+  return isAiProvenance(indicator.provenance) || isFrameworkApproved(frameworkStatus);
 }
 
 /** A library id as the library stores it: trimmed and upper-case ("fs-01 " → "FS-01"). */
@@ -588,11 +591,34 @@ export function buildUpdatePayload(indicator: Indicator, values: IndicatorFormVa
 }
 
 /**
+ * The keys an accept may change (mirror of the backend DRAFT_EDITABLE_KEYS, raqib-backend src/services/kpi/draft.ts;
+ * design 8.1): the fields of a suggestion's draft. The server drops any other key of the edits without an error.
+ */
+export const ACCEPT_EDITABLE_KEYS = [
+  "indicatorText", "indicatorTextAr", "level", "resultId", "libraryId", "standardReferenceCode", "definition", "unit",
+  "calculation", "direction", "disaggregation", "dataCollectionMethod", "frequency", "meansOfVerification",
+  "baselineValue", "baselineDate", "baselineMethod", "targetValue", "targetJustification", "intermediateTargets",
+  "assumptions", "responsibility", "startDate", "endDate", "aiRationale",
+] as const satisfies readonly (keyof IndicatorInput)[];
+
+/**
+ * Form fields that are not part of a suggestion's draft: the server sets them when it creates the indicator (status
+ * not started, no current value, actual dates or milestones), so Edit & accept hides them and they are edited after
+ * accepting (review TQ-02: edits to them were dropped silently).
+ */
+export const ACCEPT_HIDDEN_FIELDS = ["status", "currentValue", "actualStartDate", "actualEndDate", "milestones"] as const satisfies
+  readonly (keyof IndicatorFormValues & keyof IndicatorInput)[];
+
+const ACCEPT_EDITABLE = new Set<string>(ACCEPT_EDITABLE_KEYS);
+
+/**
  * The edits sent when a KPI suggestion is accepted from the form (design sections 8.1 and 9.5): the fields whose
  * values differ from the suggestion's draft, both sides converted the same way so formatting never counts as an
- * edit; `undefined` when nothing changed (the suggestion is then accepted as is, status `accepted`).
+ * edit, and only ACCEPT_EDITABLE_KEYS (nothing the server would drop); `undefined` when nothing changed (the
+ * suggestion is then accepted as is, status `accepted`).
  */
 export function acceptEdits(draft: IndicatorFormSource, values: IndicatorFormValues): IndicatorInput | undefined {
-  const edits = changedFields(formValuesToPayload(inputToFormValues(draft)), formValuesToPayload(values));
+  const changed = changedFields(formValuesToPayload(inputToFormValues(draft)), formValuesToPayload(values));
+  const edits = Object.fromEntries(Object.entries(changed).filter(([key]) => ACCEPT_EDITABLE.has(key))) as IndicatorInput;
   return Object.keys(edits).length > 0 ? edits : undefined;
 }

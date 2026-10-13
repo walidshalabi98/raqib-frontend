@@ -498,6 +498,19 @@ describe("IndicatorForm accept mode (Edit & accept, design 9.5)", { timeout: 20_
     expect(api.getLibraryEntry).toHaveBeenCalledWith("FS-01");
   });
 
+  it("hides the fields that are not part of a suggestion, and says they are set after accepting (TQ-02)", () => {
+    renderAccept();
+    for (const label of ["Status", "Current value", "Actual start", "Actual end"]) {
+      expect(screen.queryByLabelText(new RegExp(`^${label}\\*?$`)), label).not.toBeInTheDocument();
+    }
+    expect(screen.queryByText("Milestones")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add milestone/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Status, current value, actual dates and milestones are set after you accept the indicator.")).toBeInTheDocument();
+    // The draft's own timeline stays editable.
+    expect(screen.getByLabelText("Planned start")).toBeInTheDocument();
+    expect(screen.getByLabelText("Planned end")).toBeInTheDocument();
+  });
+
   it("accepts an unchanged draft without edits and shows the accepted toast", async () => {
     const user = userEvent.setup({ delay: null });
     const response = acceptResponse();
@@ -561,6 +574,34 @@ describe("IndicatorForm accept mode (Edit & accept, design 9.5)", { timeout: 20_
     await user.click(screen.getByRole("button", { name: "Accept indicator" }));
     await waitFor(() => expect(onCancel).toHaveBeenCalled());
     expect(toast.error).toHaveBeenCalledWith("This result already has this indicator. The list was refreshed.");
+  });
+
+  it("keeps the form and the edits after a write conflict (409 conflict), so Accept works again", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.acceptKpiSuggestion)
+      .mockRejectedValueOnce(new ApiError("Write conflict", 409, "conflict"))
+      .mockResolvedValueOnce(acceptResponse());
+    const { onAccepted, onCancel } = renderAccept();
+    await user.type(screen.getByLabelText("Final target"), "60%");
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    expect(await screen.findByText("This change clashed with another change made at the same time, so nothing was saved. Try again.")).toBeInTheDocument();
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Final target")).toHaveValue("60%");
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    await waitFor(() => expect(onAccepted).toHaveBeenCalled());
+    expect(vi.mocked(api.acceptKpiSuggestion).mock.calls[1]).toEqual(["s-1", { targetValue: "60%" }]);
+  });
+
+  it("shows a refused field (400 not_editable) in the UI language, not the server's English", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.acceptKpiSuggestion).mockRejectedValue(
+      new ApiError("Invalid request: these fields cannot be changed when accepting a suggestion: status.", 400, "not_editable", { keys: ["status"] }),
+    );
+    const { onCancel } = renderAccept();
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    expect(await screen.findByText(/cannot be set while accepting a suggestion/)).toBeInTheDocument();
+    expect(screen.queryByText(/Invalid request/)).not.toBeInTheDocument();
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   it("keeps the form open with the server's message for other failures", async () => {

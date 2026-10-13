@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { api } from "@/services/api";
 import { ApiError } from "@/lib/apiError";
 import { queryKeys } from "@/lib/queryKeys";
+import { KPI_RESULT_POLL_CAP_MS } from "@/lib/kpiSuggestions";
 import { AuthProvider } from "@/contexts/AuthContext";
 import type { AppLanguage } from "@/i18n";
 import { KpiAssistantProvider } from "@/components/kpi/KpiAssistantProvider";
@@ -12,7 +13,7 @@ import { KpiFrameworkPanel } from "@/components/kpi/KpiFrameworkPanel";
 import { KpiResultSuggestions } from "@/components/kpi/KpiResultSuggestions";
 import { SuggestKpisButton } from "@/components/kpi/SuggestKpisButton";
 import type { KpiRun, KpiSuggestion } from "@/types/api";
-import { createTestQueryClient, renderWithClient } from "@/test/utils";
+import { createTestQueryClient, nameWithIsolatedPart, renderWithClient } from "@/test/utils";
 import {
   makeAuthUser,
   makeKpiAssistantStatus,
@@ -66,8 +67,10 @@ function renderChain(lang: AppLanguage = "en") {
 }
 
 const row = (code: string) => screen.getByTestId(`row-${code}`);
-const runningRun = (overrides: Partial<KpiRun> = {}) =>
-  makeKpiRun({ status: "running", step: "model", suggestionCount: 0, finishedAt: null, createdAt: new Date().toISOString(), ...overrides });
+const runningRun = (overrides: Partial<KpiRun> = {}) => {
+  const now = new Date().toISOString();
+  return makeKpiRun({ status: "running", step: "model", suggestionCount: 0, finishedAt: null, createdAt: now, updatedAt: now, ...overrides });
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -144,6 +147,71 @@ describe("KpiAssistantProvider (useKpiSuggestions through the components)", () =
     expect(api.getKpiSuggestionRun).toHaveBeenCalledTimes(2);
   });
 
+  it("shows 'taking longer' and Refresh at the polling cap when every poll returns the same running run", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const running = runningRun({ id: "run-stuck" });
+    vi.mocked(api.requestKpiSuggestions).mockResolvedValue({ run: running, httpStatus: 202 });
+    // Identical bodies (no heartbeat between polls): structural sharing keeps the same data, so no poll re-renders.
+    vi.mocked(api.getKpiSuggestionRun).mockImplementation(async () => ({ run: { ...running }, suggestions: [] }));
+    const user = userEvent.setup({ delay: null, advanceTimers: vi.advanceTimersByTime });
+    renderChain();
+    await user.click(await screen.findByRole("button", { name: "Suggest KPIs for O1" }));
+    await waitFor(() => expect(api.getKpiSuggestionRun).toHaveBeenCalledWith("run-stuck"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(KPI_RESULT_POLL_CAP_MS - 5_000); });
+    expect(within(row("O1")).queryByText("This is taking longer than expected.")).not.toBeInTheDocument();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(within(row("O1")).getAllByText("This is taking longer than expected.").length).toBeGreaterThan(0);
+    expect(within(row("O1")).getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+    // Polling stopped at the cap; Refresh asks once more.
+    const polls = vi.mocked(api.getKpiSuggestionRun).mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(api.getKpiSuggestionRun).toHaveBeenCalledTimes(polls);
+    await user.click(within(row("O1")).getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(api.getKpiSuggestionRun).toHaveBeenCalledTimes(polls + 1));
+  });
+
+  it("polls a 202 run from the client's own request time, whatever the server clock says", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // The server's clock is 3 minutes behind the client's: by the client's clock the run looks 3 minutes old.
+    const serverNow = new Date(Date.now() - 3 * 60_000).toISOString();
+    const running = runningRun({ id: "run-skew", createdAt: serverNow, updatedAt: serverNow });
+    vi.mocked(api.requestKpiSuggestions).mockResolvedValue({ run: running, httpStatus: 202 });
+    vi.mocked(api.getKpiSuggestionRun).mockImplementation(async () => ({ run: { ...running }, suggestions: [] }));
+    const user = userEvent.setup({ delay: null, advanceTimers: vi.advanceTimersByTime });
+    renderChain();
+    await user.click(await screen.findByRole("button", { name: "Suggest KPIs for O1" }));
+    await waitFor(() => expect(api.getKpiSuggestionRun).toHaveBeenCalledTimes(1));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_100); });
+    await waitFor(() => expect(api.getKpiSuggestionRun).toHaveBeenCalledTimes(2));
+    expect(within(row("O1")).queryByText("This is taking longer than expected.")).not.toBeInTheDocument();
+    expect(within(row("O1")).getByText("Preparing suggestions for O1")).toBeInTheDocument();
+  });
+
+  it("announces a finished framework run to screen readers (UX-05)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const running = runningRun({ id: "run-fw", scope: "framework", resultId: null });
+    vi.mocked(api.requestKpiSuggestions).mockResolvedValue({ run: running, httpStatus: 202 });
+    const o2 = makeKpiSuggestion({ id: "s-o2", resultId: "o2", resultCode: "O2", runId: "run-fw", suggestion: { name: "Nutrition practice indicator" } });
+    const fromRun = { ...o1Suggestion, runId: "run-fw" };
+    const done = makeKpiRun({ id: "run-fw", scope: "framework", resultId: null, suggestionCount: 2, createdAt: running.createdAt });
+    let serverSuggestions: KpiSuggestion[] = [];
+    vi.mocked(api.getKpiSuggestions).mockImplementation(async () => makeKpiSuggestionList({ suggestions: serverSuggestions }));
+    vi.mocked(api.getKpiSuggestionRun)
+      .mockResolvedValueOnce({ run: running, suggestions: [] })
+      .mockImplementation(async () => {
+        serverSuggestions = [fromRun, o2];
+        return { run: done, suggestions: [fromRun, o2] };
+      });
+    const user = userEvent.setup({ delay: null, advanceTimers: vi.advanceTimersByTime });
+    renderChain();
+    await user.click(await screen.findByRole("button", { name: "Suggest KPIs for all results" }));
+    expect(await screen.findByText("Preparing suggestions for all results")).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_100); });
+    expect(await within(row("O2")).findByRole("heading", { name: "Nutrition practice indicator" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByRole("status").some((el) => el.textContent === "2 suggestions ready across all results")).toBe(true));
+  });
+
   it("409 run_in_progress: follows the run that is already preparing suggestions", async () => {
     vi.mocked(api.requestKpiSuggestions).mockRejectedValue(new ApiError("Busy", 409, "run_in_progress", { runId: "run-busy" }));
     vi.mocked(api.getKpiSuggestionRun).mockResolvedValue({ run: runningRun({ id: "run-busy", step: "retrieval" }), suggestions: [] });
@@ -196,18 +264,48 @@ describe("KpiAssistantProvider (useKpiSuggestions through the components)", () =
     const user = userEvent.setup({ delay: null });
     renderChain();
     await user.click(await screen.findByRole("button", { name: "Suggest KPIs for O1" }));
-    expect(await within(row("O1")).findByRole("alert")).toHaveTextContent("You have asked for many suggestions this hour. Try again later.");
+    expect(await within(row("O1")).findByRole("alert")).toHaveTextContent("Too many requests right now. Wait a minute and try again.");
     await user.click(within(row("O1")).getByRole("button", { name: "Try again" }));
     expect(await within(row("O1")).findByText(/reached today's AI budget/)).toBeInTheDocument();
     expect(within(row("O1")).queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
   });
 
-  it("422: explains that there is nothing to suggest", async () => {
-    vi.mocked(api.requestKpiSuggestions).mockRejectedValue(new ApiError("Nothing", 422, "nothing_to_suggest", { reason: "level_cap" }));
+  it.each([
+    ["organisation", "en", "Your organisation has reached its hourly limit of KPI suggestions. Try again later.", "Try again"],
+    ["user", "en", "You have reached your hourly limit of AI requests (KPI suggestions, frameworks, reports and analyses count together). Try again later.", "Try again"],
+    ["organisation", "ar", "بلغت مؤسستك حدّها من اقتراحات المؤشرات لهذه الساعة. حاول لاحقًا.", "إعادة المحاولة"],
+  ] as const)("429 rate_limited (scope %s, %s): says who reached the hourly limit (UX-08)", async (scope, lang, message, retry) => {
+    vi.mocked(api.requestKpiSuggestions).mockRejectedValue(new ApiError("Limit", 429, "rate_limited", { scope }));
+    const user = userEvent.setup({ delay: null });
+    renderChain(lang);
+    const suggest = lang === "ar" ? "اقتراح مؤشرات للنتيجة O1" : "Suggest KPIs for O1";
+    await user.click(await screen.findByRole("button", { name: suggest }));
+    expect(await within(row("O1")).findByRole("alert")).toHaveTextContent(message);
+    // Retry stays: the hourly window lapses, and the message says to come back later.
+    expect(within(row("O1")).getByRole("button", { name: retry })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["level_cap", "Every result already has as many indicators as its level allows, so there is nothing to suggest."],
+    ["donor_cap", "Every result already has as many indicators as the donor allows, so there is nothing to suggest."],
+    ["no_results", "There is nothing to suggest yet: add a goal (impact), outcome or output to the results chain first."],
+    [undefined, "Every result already has as many indicators as allowed, so there is nothing to suggest."],
+    ["something_new", "Every result already has as many indicators as allowed, so there is nothing to suggest."],
+  ])("422 nothing_to_suggest (reason %s): explains why, without Retry", async (reason, message) => {
+    vi.mocked(api.requestKpiSuggestions).mockRejectedValue(new ApiError("Nothing", 422, "nothing_to_suggest", reason ? { reason } : undefined));
     const user = userEvent.setup({ delay: null });
     renderChain();
     await user.click(await screen.findByRole("button", { name: "Suggest KPIs for all results" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Every result already has as many indicators as allowed, so there is nothing to suggest.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+  });
+
+  it("422 nothing_to_suggest in Arabic names the donor limit", async () => {
+    vi.mocked(api.requestKpiSuggestions).mockRejectedValue(new ApiError("Nothing", 422, "nothing_to_suggest", { reason: "donor_cap" }));
+    const user = userEvent.setup({ delay: null });
+    renderChain("ar");
+    await user.click(await screen.findByRole("button", { name: "اقتراح مؤشرات للنتيجة O1" }));
+    expect(await within(row("O1")).findByRole("alert")).toHaveTextContent("لكل نتيجة العدد الأقصى من المؤشرات الذي يسمح به المانح، فلا يوجد ما يُقترح.");
   });
 
   it("a failed run shows its translated error with Retry, which asks again", async () => {
@@ -229,6 +327,7 @@ describe("KpiAssistantProvider (useKpiSuggestions through the components)", () =
   });
 
   it("resumes a framework run reported by the list after a reload and shows 'taking longer' past the cap", async () => {
+    // Created 11 minutes ago by the server's clock (its last heartbeat is now).
     const old = new Date(Date.now() - 11 * 60_000).toISOString();
     const frameworkRun = runningRun({ id: "run-fw", scope: "framework", resultId: null, step: "model", createdAt: old });
     vi.mocked(api.getKpiSuggestions).mockResolvedValue(makeKpiSuggestionList({ activeRuns: [frameworkRun] }));
@@ -314,7 +413,7 @@ describe("KpiAssistantProvider (useKpiSuggestions through the components)", () =
     await user.click(screen.getByRole("button", { name: "Reject suggestion" }));
     await user.click(await screen.findByRole("button", { name: "Show alternatives to “Households with acceptable FCS”" }));
     expect(api.requestKpiSuggestions).toHaveBeenCalledWith("p-1", { scope: "alternatives", suggestionId: "s-1" });
-    const group = await within(row("O1")).findByRole("list", { name: "Alternatives to “Households with acceptable FCS”" });
+    const group = await within(row("O1")).findByRole("list", { name: nameWithIsolatedPart("Alternatives to “Households with acceptable FCS”") });
     expect(within(group).getByRole("heading", { name: "Better worded indicator" })).toBeInTheDocument();
     expect(within(row("O1")).getByRole("heading", { name: "Rejected: Households with acceptable FCS" })).toBeInTheDocument();
   });

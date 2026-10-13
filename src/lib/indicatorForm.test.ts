@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACCEPT_EDITABLE_KEYS,
+  ACCEPT_HIDDEN_FIELDS,
   acceptEdits,
   blockingErrors,
   buildCreatePayload,
@@ -250,13 +252,24 @@ describe("canApproveIndicator (design D18, 9.5)", () => {
     }
   });
 
-  it("not to other roles, not twice, and not before the framework is approved", () => {
+  it("not to other roles, not twice, and not for manual or library indicators before the framework is approved", () => {
     for (const role of ["me_officer", "donor_viewer", "", null, undefined]) {
       expect(canApproveIndicator(role, { isApproved: false }, "approved")).toBe(false);
+      expect(canApproveIndicator(role, { isApproved: false, provenance: "ai_suggested" }, "draft")).toBe(false);
     }
     expect(canApproveIndicator("org_admin", { isApproved: true }, "approved")).toBe(false);
+    expect(canApproveIndicator("org_admin", { isApproved: true, provenance: "ai_suggested" }, "draft")).toBe(false);
     for (const status of ["draft", "expert_review", "client_review", null, undefined] as const) {
       expect(canApproveIndicator("org_admin", { isApproved: false }, status)).toBe(false);
+      expect(canApproveIndicator("org_admin", { isApproved: false, provenance: "manual" }, status)).toBe(false);
+      expect(canApproveIndicator("org_admin", { isApproved: false, provenance: "library" }, status)).toBe(false);
+    }
+  });
+
+  it("offers approval of an AI-made indicator whatever the framework status (review UX-03: no framework approval on the tab)", () => {
+    for (const status of ["draft", "expert_review", "client_review", "approved", "active", null] as const) {
+      expect(canApproveIndicator("org_admin", { isApproved: false, provenance: "ai_suggested" }, status)).toBe(true);
+      expect(canApproveIndicator("platform_admin", { isApproved: false, provenance: "ai_generated" }, status)).toBe(true);
     }
   });
 });
@@ -363,5 +376,38 @@ describe("acceptEdits (design 8.1, 9.5)", () => {
     expect(acceptEdits(draft, { ...inputToFormValues(draft), resultId: "o2" })).toEqual({ resultId: "o2" });
     expect(acceptEdits(draft, { ...inputToFormValues(draft), resultId: "o11", level: "output" }))
       .toEqual({ resultId: "o11", level: "output" });
+  });
+
+  it("never sends a field the server would drop: status, current value, actual dates, milestones (TQ-02)", () => {
+    const draft = makeIndicatorDraft();
+    const values = {
+      ...inputToFormValues(draft),
+      status: "at_risk" as const,
+      currentValue: "12",
+      actualStartDate: "2026-02-01",
+      actualEndDate: "2026-03-01",
+      milestones: [{ label: "Baseline survey done", date: "2026-05-01", completed: false }],
+    };
+    expect(acceptEdits(draft, values)).toBeUndefined();
+    expect(acceptEdits(draft, { ...values, targetValue: "60%" })).toEqual({ targetValue: "60%" });
+  });
+});
+
+describe("the accept contract (mirror of the backend DRAFT_EDITABLE_KEYS, TQ-02)", () => {
+  it("lists the keys the backend accepts as edits (raqib-backend src/services/kpi/draft.ts EDITABLE_KEYS)", () => {
+    expect([...ACCEPT_EDITABLE_KEYS].sort()).toEqual([
+      "aiRationale", "assumptions", "baselineDate", "baselineMethod", "baselineValue", "calculation", "dataCollectionMethod",
+      "definition", "direction", "disaggregation", "endDate", "frequency", "indicatorText", "indicatorTextAr",
+      "intermediateTargets", "level", "libraryId", "meansOfVerification", "responsibility", "resultId",
+      "standardReferenceCode", "startDate", "targetJustification", "targetValue", "unit",
+    ]);
+  });
+
+  it("every field the accept form shows is a key the backend keeps; the others are hidden in accept mode", () => {
+    const formKeys = Object.keys(formValuesToPayload(emptyIndicatorForm()));
+    const hidden = new Set<string>(ACCEPT_HIDDEN_FIELDS);
+    const editable = new Set<string>(ACCEPT_EDITABLE_KEYS);
+    expect(formKeys.filter((key) => !hidden.has(key) && !editable.has(key))).toEqual([]);
+    expect([...hidden].every((key) => formKeys.includes(key) && !editable.has(key))).toBe(true);
   });
 });

@@ -7,7 +7,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { KpiAssistantContext, type KpiAssistantValue, type KpiRunView } from "@/hooks/useKpiAssistant";
 import { KpiResultSuggestions } from "@/components/kpi/KpiResultSuggestions";
 import type { Framework, KpiSuggestion } from "@/types/api";
-import { createTestQueryClient, renderWithClient } from "@/test/utils";
+import { createTestQueryClient, nameWithIsolatedPart, renderWithClient } from "@/test/utils";
 import {
   makeIndicator,
   makeKpiAssistantValue,
@@ -100,6 +100,63 @@ describe("KpiResultSuggestions", () => {
     expect(request).toHaveBeenCalledWith({ scope: "result", resultId: "o1" });
   });
 
+  it("does not claim that nothing fits once the user has decided every card of a run (UX-04)", async () => {
+    const user = userEvent.setup({ delay: null });
+    const run = makeKpiRun({ suggestionCount: 1 });
+    renderList({ pendingFor: pending(first), runFor: (t) => ("scope" in t ? null : view({ run, status: "completed", step: "done" })) });
+    await user.click(screen.getByRole("button", { name: "Accept “First indicator”" }));
+    await waitFor(() => expect(screen.queryByRole("article")).not.toBeInTheDocument());
+    expect(screen.queryByText(/Nothing else in the library fits/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Suggest again" })).not.toBeInTheDocument();
+  });
+
+  it("shows 'No new suggestions' for a run that returned none next to older cards, until a card is decided", async () => {
+    const user = userEvent.setup({ delay: null });
+    const run = makeKpiRun({ id: "run-empty", suggestionCount: 0 });
+    renderList({ pendingFor: pending(first, second), runFor: (t) => ("scope" in t ? null : view({ run, status: "completed", step: "done" })) });
+    expect(screen.getByText(/^No new suggestions for O1\. Nothing else in the library fits/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("No new suggestions for O1");
+    await user.click(screen.getByRole("button", { name: "Accept “First indicator”" }));
+    await waitFor(() => expect(screen.queryByText(/Nothing else in the library fits/)).not.toBeInTheDocument());
+  });
+
+  it("says visibly that an alternatives run found nothing, also when other cards are shown", () => {
+    const run = makeKpiRun({ id: "run-alt", scope: "alternatives", sourceSuggestionId: "s-1", suggestionCount: 0 });
+    renderList({ pendingFor: pending(first, second), runFor: (t) => ("scope" in t ? null : view({ run, scope: "alternatives", status: "completed", step: "done" })) });
+    const line = screen.getByText((_, el) => el?.tagName === "P"
+      && el.textContent === "No alternatives found for “First indicator”. Nothing else in the library fits, or your organisation rejected the matches.");
+    expect(line.querySelector("bdi")).toHaveAttribute("lang", "en");
+    expect(screen.queryByRole("button", { name: "Suggest again" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+  });
+
+  it("says that no alternatives were found for an indicator it cannot name", () => {
+    const run = makeKpiRun({ id: "run-alt", scope: "alternatives", sourceIndicatorId: "ind-unknown", suggestionCount: 0 });
+    renderList({ runFor: (t) => ("scope" in t ? null : view({ run, scope: "alternatives", status: "completed", step: "done" })) });
+    expect(screen.getByText("No alternatives found for this indicator. Nothing else in the library fits, or your organisation rejected the matches.")).toBeInTheDocument();
+  });
+
+  it("isolates an English indicator name inside an Arabic label, with its language (UX-12, WCAG 3.1.2)", () => {
+    const client = createTestQueryClient();
+    client.setQueryData<Partial<Framework>>(queryKeys.framework("p-1"), {
+      indicators: [makeIndicator({ id: "ind-7", indicatorText: "Increase the number of households receiving vouchers to 1,200", indicatorTextAr: null })],
+    });
+    const ofIndicator = makeKpiSuggestion({ id: "alt-2", alternativeOfIndicatorId: "ind-7", suggestion: { name: "Alternative", nameAr: "بديل" } });
+    renderList({ lang: "ar", pendingFor: pending(ofIndicator) }, { client });
+    const name = screen.getByText("Increase the number of households receiving vouchers to 1,200");
+    expect(name.tagName).toBe("BDI");
+    expect(name).toHaveAttribute("lang", "en");
+    expect(name).toHaveAttribute("dir", "auto");
+    expect(name.parentElement).toHaveTextContent("بدائل لـ«Increase the number of households receiving vouchers to 1,200»");
+    expect(screen.getByRole("list", { name: nameWithIsolatedPart("بدائل لـ«Increase the number of households receiving vouchers to 1,200»") })).toBeInTheDocument();
+  });
+
+  it("keeps an Arabic name in an Arabic label marked as Arabic", () => {
+    const nested = makeKpiSuggestion({ id: "alt-1", alternativeOfSuggestionId: "s-1", suggestion: { name: "Alternative to first", nameAr: "بديل للأول" } });
+    renderList({ lang: "ar", pendingFor: pending(first, nested) });
+    expect(screen.getByText("المؤشر الأول", { selector: "bdi" })).toHaveAttribute("lang", "ar");
+  });
+
   it("renders nothing before any request, for activities and for donor viewers", () => {
     const { container, unmount } = renderList({});
     expect(container.querySelector("article, [role=alert], ul")).toBeNull();
@@ -119,9 +176,9 @@ describe("KpiResultSuggestions", () => {
     const ofIndicator = makeKpiSuggestion({ id: "alt-2", alternativeOfIndicatorId: "ind-7", suggestion: { name: "Alternative to indicator" } });
     const ofUnknown = makeKpiSuggestion({ id: "alt-3", alternativeOfSuggestionId: "gone", suggestion: { name: "Alternative to earlier" } });
     renderList({ pendingFor: pending(first, nested, ofIndicator, ofUnknown) }, { client });
-    const nestedList = screen.getByRole("list", { name: "Alternatives to “First indicator”" });
+    const nestedList = screen.getByRole("list", { name: nameWithIsolatedPart("Alternatives to “First indicator”") });
     expect(within(nestedList).getByRole("heading", { name: "Alternative to first" })).toBeInTheDocument();
-    expect(within(screen.getByRole("list", { name: "Alternatives to “Existing FCS indicator”" })).getByRole("heading")).toHaveTextContent("Alternative to indicator");
+    expect(within(screen.getByRole("list", { name: nameWithIsolatedPart("Alternatives to “Existing FCS indicator”") })).getByRole("heading")).toHaveTextContent("Alternative to indicator");
     expect(within(screen.getByRole("list", { name: "Alternatives to an earlier suggestion" })).getByRole("heading")).toHaveTextContent("Alternative to earlier");
   });
 

@@ -14,7 +14,9 @@ export function useFrameworkResults(frameworkId: string | undefined) {
 
 /**
  * Refreshes everything that shows a framework's results or indicators after a
- * change: the framework view, the results chain, the project page and its dashboard.
+ * change: the framework view, the results chain, the project page, its dashboard
+ * and the indicators' quality check (badges and the weak-indicator prompt; a
+ * deterministic check with no AI call, requested only for staff roles).
  */
 export function invalidateFrameworkData(
   queryClient: QueryClient,
@@ -25,6 +27,7 @@ export function invalidateFrameworkData(
     queryClient.invalidateQueries({ queryKey: queryKeys.frameworkResults(ids.frameworkId) }),
     queryClient.invalidateQueries({ queryKey: queryKeys.project(ids.projectId) }),
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(ids.projectId) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.indicatorQuality(ids.frameworkId) }),
   ]);
 }
 

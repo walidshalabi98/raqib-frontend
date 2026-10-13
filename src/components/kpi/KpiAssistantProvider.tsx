@@ -23,10 +23,14 @@ import type { KpiShownErrorCode } from "@/lib/constants";
 import {
   bodyForRun,
   isRetryableError,
+  kpiErrorText,
   kpiRunNeedsRefresh,
+  nextPollCapAt,
   progressStepAt,
   requestErrorCode,
+  requestErrorContext,
   runErrorCode,
+  runStartedAtOnClient,
   runTargetKey,
 } from "@/lib/kpiSuggestions";
 import type {
@@ -54,12 +58,18 @@ interface Tracked {
   body: RequestKpiSuggestionsBody | null;
   scope: KpiScopeType;
   resultId: string | null;
-  /** Client time (ms) the request started, or the run's createdAt for an adopted run. */
+  /**
+   * Client time (ms) the request started, or runStartedAtOnClient for a run this client did not start (adopted after
+   * a reload, or followed after 409 run_in_progress). Polling and "taking longer" count from it, never from the
+   * server's createdAt (the two clocks can differ).
+   */
   startedAt: number;
   runId: string | null;
   run: KpiRun | null;
   /** A failed request (the run, when known, carries its own errorCode). */
   error: KpiShownErrorCode | null;
+  /** The i18n context of the failed request's message (422 nothing_to_suggest: details.reason). */
+  errorContext?: string;
   /** Following a run another request started (409 run_in_progress with details.runId). */
   attached: boolean;
 }
@@ -108,19 +118,39 @@ function useTicker(active: boolean, ms: number): number {
 }
 
 /**
+ * Re-renders once the client clock reaches `at` (null: never), and returns the time it woke. Used for the polling
+ * cap: polling stops there and an unchanged poll answer re-renders nothing, so without it "taking longer" and Refresh
+ * would wait for an unrelated render (review UX-01).
+ */
+function useWakeAt(at: number | null): number {
+  const [wokeAt, setWokeAt] = useState(() => Date.now());
+  useEffect(() => {
+    if (at === null) return undefined;
+    // +1 ms: a timer that fires on the very millisecond still finds the cap passed.
+    const timer = setTimeout(() => setWokeAt(Date.now()), Math.max(0, at - Date.now()) + 1);
+    return () => clearTimeout(timer);
+    // wokeAt: a timer that fired early schedules itself again.
+  }, [at, wokeAt]);
+  return wokeAt;
+}
+
+/**
  * Polls one run (useKpiSuggestionRun with the 7.4 back-off) and reports every answer; renders nothing. One watcher
  * per running run, so the provider can follow several runs at once.
  */
 function KpiRunWatcher({
   runId,
+  startedAt,
   onData,
   onFailed,
 }: {
   runId: string;
+  /** Client time the run started (Tracked.startedAt): the polling cap counts from it. */
+  startedAt: number;
   onData: (runId: string, data: KpiSuggestionRunResponse) => void;
   onFailed: (runId: string, err: unknown) => void;
 }) {
-  const query = useKpiSuggestionRun(runId);
+  const query = useKpiSuggestionRun(runId, startedAt);
   useEffect(() => {
     if (query.data) onData(runId, query.data);
   }, [query.data, runId, onData]);
@@ -192,16 +222,20 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
       const runKey = runTargetKey(run);
       const next: Record<string, Tracked> = { ...prev };
       if (runKey === fromKey) {
-        next[fromKey] = from
-          ? { ...from, runId: run.id, run, error: null, attached: false, scope: run.scope }
-          : entryForRun(run, null, Date.parse(run.createdAt) || Date.now());
+        if (!from) {
+          next[fromKey] = entryForRun(run, null, runStartedAtOnClient(run, Date.now()));
+          return next;
+        }
+        // A followed run (409 run_in_progress) started before this request: count from its own start.
+        const startedAt = from.attached && !from.run ? Math.min(from.startedAt, runStartedAtOnClient(run, Date.now())) : from.startedAt;
+        next[fromKey] = { ...from, runId: run.id, run, error: null, errorContext: undefined, attached: false, scope: run.scope, startedAt };
         return next;
       }
       if (from?.attached) next[fromKey] = { ...from, runId: null, run: null, error: "run_in_progress", attached: false };
       else delete next[fromKey];
       const existing = prev[runKey];
       const body = from && !from.attached ? from.body : existing?.body ?? null;
-      const startedAt = from && !from.attached ? from.startedAt : existing?.startedAt ?? (Date.parse(run.createdAt) || Date.now());
+      const startedAt = from && !from.attached ? from.startedAt : existing?.startedAt ?? runStartedAtOnClient(run, Date.now());
       next[runKey] = entryForRun(run, body, startedAt);
       return next;
     });
@@ -245,7 +279,8 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
           return;
         }
         if (code === "ai_not_configured" || httpStatusOf(err) === 503) markNotConfigured();
-        update((prev) => (prev[key] ? { ...prev, [key]: { ...prev[key], error: code } } : prev));
+        const errorContext = requestErrorContext(err);
+        update((prev) => (prev[key] ? { ...prev, [key]: { ...prev[key], error: code, errorContext } } : prev));
       },
     );
   }, [enabled, keyForBody, mutateAsync, placeRun, update, markNotConfigured]);
@@ -262,7 +297,7 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
     update((prev) => {
       let next = prev;
       for (const entry of Object.values(prev)) {
-        if (entry.runId === runId && !entry.run) next = { ...next, [entry.key]: { ...entry, error: code, attached: false } };
+        if (entry.runId === runId && !entry.run) next = { ...next, [entry.key]: { ...entry, error: code, errorContext: requestErrorContext(err), attached: false } };
       }
       return next;
     });
@@ -280,14 +315,20 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
         if (Object.values(next).some((e) => e.runId === run.id)) continue;
         const key = runTargetKey(run);
         if (isActive(next[key])) continue;
-        next = { ...next, [key]: entryForRun(run, null, Date.parse(run.createdAt) || Date.now()) };
+        next = { ...next, [key]: entryForRun(run, null, runStartedAtOnClient(run, Date.now())) };
       }
       return next;
     });
   }, [list.data, update]);
 
   const waiting = Object.values(tracked).some((e) => !e.error && !e.run);
-  const now = useTicker(waiting, TICK_MS);
+  const tickedAt = useTicker(waiting, TICK_MS);
+  const capAt = nextPollCapAt(
+    Object.values(tracked).map((e) => ({ run: e.run, startedAt: e.startedAt, failed: Boolean(e.error) })),
+    Date.now(),
+  );
+  const wokeAt = useWakeAt(capAt);
+  const now = Math.max(tickedAt, wokeAt);
 
   const statusUpdatedAt = status.dataUpdatedAt;
   const aiConfigured = notConfiguredAt !== null && notConfiguredAt >= statusUpdatedAt ? false : status.data?.aiConfigured;
@@ -315,7 +356,7 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
         step: run ? run.step : progressStepAt(current - entry.startedAt),
         status: entry.error ? "failed" : run ? run.status : "running",
         startedAt: new Date(entry.startedAt).toISOString(),
-        takingLonger: Boolean(!entry.error && run && run.status === "running" && !kpiRunNeedsRefresh(run, current)),
+        takingLonger: Boolean(!entry.error && run && run.status === "running" && !kpiRunNeedsRefresh(run, entry.startedAt, current)),
         refresh: () => {
           if (entry.runId) void queryClient.refetchQueries({ queryKey: queryKeys.kpiSuggestionRun(entry.runId) });
         },
@@ -328,7 +369,7 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
       const body = entry.body;
       return {
         code,
-        message: t(`kpi.errors.${code}`),
+        message: kpiErrorText(t, code, entry.error ? entry.errorContext : undefined),
         ...(body && isRetryableError(code) && { retry: () => request(body) }),
       };
     };
@@ -347,16 +388,17 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
     };
   }, [enabled, aiConfigured, lang, projectId, frameworkId, pendingByResult, tracked, now, list.data, listFailed, refetchList, request, t, queryClient]);
 
-  const watched = [...new Set(
-    Object.values(tracked)
-      .filter((e) => e.runId && !e.error && (!e.run || e.run.status === "running"))
-      .map((e) => e.runId as string),
-  )];
+  // Each running run once, with the earliest start of the entries that follow it.
+  const watched = new Map<string, number>();
+  for (const e of Object.values(tracked)) {
+    if (!e.runId || e.error || (e.run && e.run.status !== "running")) continue;
+    watched.set(e.runId, Math.min(watched.get(e.runId) ?? e.startedAt, e.startedAt));
+  }
 
   return (
     <KpiAssistantContext.Provider value={value}>
-      {enabled && watched.map((runId) => (
-        <KpiRunWatcher key={runId} runId={runId} onData={onRunData} onFailed={onRunFailed} />
+      {enabled && [...watched].map(([runId, startedAt]) => (
+        <KpiRunWatcher key={runId} runId={runId} startedAt={startedAt} onData={onRunData} onFailed={onRunFailed} />
       ))}
       {children}
     </KpiAssistantContext.Provider>

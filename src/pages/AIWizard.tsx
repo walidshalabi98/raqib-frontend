@@ -14,7 +14,7 @@ import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { PersonalDataWarning } from "@/components/common/PersonalDataWarning";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useRequestKpiSuggestions } from "@/hooks/useKpiSuggestions";
-import { requestErrorCode, runErrorCode } from "@/lib/kpiSuggestions";
+import { kpiErrorText, requestErrorCode, requestErrorContext, runErrorCode } from "@/lib/kpiSuggestions";
 import type { Indicator } from "@/types/api";
 
 const steps = ["Upload Documents", "AI Processing", "Review Framework", "Summary"];
@@ -218,14 +218,17 @@ export default function AIWizard() {
         // A 200 can carry a run that failed (e.g. the AI refused).
         const failed = runErrorCode(response.run);
         if (failed) {
-          toast.error(t(`kpi.errors.${failed}`));
+          toast.error(kpiErrorText(t, failed));
           return;
         }
-        toast.success(t("kpi.toast.alternativesQueued"), {
-          action: { label: t("kpi.toast.openFramework"), onClick: () => navigate(frameworkTabPath(projectId)) },
-        });
+        const openFramework = { label: t("kpi.toast.openFramework"), onClick: () => navigate(frameworkTabPath(projectId)) };
+        // 202: still running. 200: finished, with its alternatives on the framework tab, or none found.
+        if (response.run.status === "running") toast.success(t("kpi.toast.alternativesQueued"), { action: openFramework });
+        else if (response.run.suggestionCount > 0) {
+          toast.success(t("kpi.toast.alternativesReady", { count: response.run.suggestionCount }), { action: openFramework });
+        } else toast.info(t("kpi.alternatives.none"));
       },
-      onError: (err) => toast.error(t(`kpi.errors.${requestErrorCode(err)}`)),
+      onError: (err) => toast.error(kpiErrorText(t, requestErrorCode(err), requestErrorContext(err))),
     });
   };
 

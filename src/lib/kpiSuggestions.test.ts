@@ -13,15 +13,20 @@ import {
   groupSuggestions,
   isRetryableError,
   isSuggestableLevel,
+  kpiErrorText,
+  kpiPollCapMs,
   kpiPollInterval,
   kpiRunNeedsRefresh,
   mergeRunIntoList,
+  nextPollCapAt,
   progressStepAt,
   qualityBand,
   rejectEffect,
   rejectEffectKeys,
   requestErrorCode,
+  requestErrorContext,
   runErrorCode,
+  runStartedAtOnClient,
   runTargetKey,
   shownStepIndex,
   suggestionReadingOrder,
@@ -69,50 +74,122 @@ describe("kpiRunNeedsRefresh", () => {
   const alternatives = makeKpiRun({ status: "running", scope: "alternatives" });
   const framework = makeKpiRun({ status: "running", scope: "framework", resultId: null });
 
-  it("polls a result or alternatives run for 2 minutes from createdAt", () => {
-    expect(kpiRunNeedsRefresh(result, at(0))).toBe(true);
-    expect(kpiRunNeedsRefresh(result, at(KPI_RESULT_POLL_CAP_MS - 1))).toBe(true);
-    expect(kpiRunNeedsRefresh(result, at(KPI_RESULT_POLL_CAP_MS))).toBe(false);
-    expect(kpiRunNeedsRefresh(alternatives, at(KPI_RESULT_POLL_CAP_MS - 1))).toBe(true);
-    expect(kpiRunNeedsRefresh(alternatives, at(KPI_RESULT_POLL_CAP_MS))).toBe(false);
+  it("polls a result or alternatives run for 2 minutes from its client start", () => {
+    expect(kpiRunNeedsRefresh(result, CREATED, at(0))).toBe(true);
+    expect(kpiRunNeedsRefresh(result, CREATED, at(KPI_RESULT_POLL_CAP_MS - 1))).toBe(true);
+    expect(kpiRunNeedsRefresh(result, CREATED, at(KPI_RESULT_POLL_CAP_MS))).toBe(false);
+    expect(kpiRunNeedsRefresh(alternatives, CREATED, at(KPI_RESULT_POLL_CAP_MS - 1))).toBe(true);
+    expect(kpiRunNeedsRefresh(alternatives, CREATED, at(KPI_RESULT_POLL_CAP_MS))).toBe(false);
+    expect(kpiPollCapMs("result")).toBe(KPI_RESULT_POLL_CAP_MS);
   });
 
   it("polls a framework run for 10 minutes", () => {
     expect(KPI_FRAMEWORK_POLL_CAP_MS).toBe(600_000);
-    expect(kpiRunNeedsRefresh(framework, at(KPI_RESULT_POLL_CAP_MS + 1))).toBe(true);
-    expect(kpiRunNeedsRefresh(framework, at(KPI_FRAMEWORK_POLL_CAP_MS - 1))).toBe(true);
-    expect(kpiRunNeedsRefresh(framework, at(KPI_FRAMEWORK_POLL_CAP_MS))).toBe(false);
+    expect(kpiPollCapMs("framework")).toBe(KPI_FRAMEWORK_POLL_CAP_MS);
+    expect(kpiRunNeedsRefresh(framework, CREATED, at(KPI_RESULT_POLL_CAP_MS + 1))).toBe(true);
+    expect(kpiRunNeedsRefresh(framework, CREATED, at(KPI_FRAMEWORK_POLL_CAP_MS - 1))).toBe(true);
+    expect(kpiRunNeedsRefresh(framework, CREATED, at(KPI_FRAMEWORK_POLL_CAP_MS))).toBe(false);
   });
 
-  it("never polls a finished run, and treats a future createdAt (clock skew) as just started", () => {
-    expect(kpiRunNeedsRefresh(makeKpiRun({ status: "completed" }), at(1))).toBe(false);
-    expect(kpiRunNeedsRefresh(makeKpiRun({ status: "failed" }), at(1))).toBe(false);
-    expect(kpiRunNeedsRefresh(result, at(-30_000))).toBe(true);
-    expect(kpiRunNeedsRefresh(result, new Date(at(1_000)))).toBe(true);
+  it("never polls a finished run, and treats a start still ahead or unreadable as just started", () => {
+    expect(kpiRunNeedsRefresh(makeKpiRun({ status: "completed" }), CREATED, at(1))).toBe(false);
+    expect(kpiRunNeedsRefresh(makeKpiRun({ status: "failed" }), CREATED, at(1))).toBe(false);
+    expect(kpiRunNeedsRefresh(result, CREATED, at(-30_000))).toBe(true);
+    expect(kpiRunNeedsRefresh(result, CREATED, new Date(at(1_000)))).toBe(true);
+    expect(kpiRunNeedsRefresh(result, Number.NaN, at(KPI_FRAMEWORK_POLL_CAP_MS))).toBe(true);
+  });
+});
+
+describe("runStartedAtOnClient (clock skew between the client and the server)", () => {
+  // The server created the run at 08:00:00 and its last heartbeat was at 08:00:30 (server clock).
+  const run = makeKpiRun({ status: "running", createdAt: "2026-10-13T08:00:00.000Z", updatedAt: "2026-10-13T08:00:30.000Z" });
+
+  it("takes the run's age by the server's own clock back from when the client saw it", () => {
+    const seenAt = Date.parse("2026-10-13T08:00:31.000Z");
+    expect(runStartedAtOnClient(run, seenAt)).toBe(seenAt - 30_000);
+  });
+
+  it("keeps polling a run the client sees with its clock 2 minutes ahead (review TQ-07)", () => {
+    // Client clock 2 min ahead: it sees the run 1 s after the heartbeat at 08:02:31 client time.
+    const seenAt = Date.parse("2026-10-13T08:02:31.000Z");
+    const startedAt = runStartedAtOnClient(run, seenAt);
+    expect(kpiRunNeedsRefresh(run, startedAt, seenAt)).toBe(true);
+    expect(kpiPollInterval(run, startedAt, seenAt)).toBe(5_000);
+    // Comparing the server createdAt with this clock would already be past the 2-minute cap.
+    expect(seenAt - Date.parse(run.createdAt)).toBeGreaterThan(KPI_RESULT_POLL_CAP_MS);
+    // The cap is reached 2 minutes after the run's start on the client's clock.
+    expect(kpiRunNeedsRefresh(run, startedAt, startedAt + KPI_RESULT_POLL_CAP_MS - 1)).toBe(true);
+    expect(kpiRunNeedsRefresh(run, startedAt, startedAt + KPI_RESULT_POLL_CAP_MS)).toBe(false);
+  });
+
+  it("does not poll longer than the cap with a client clock behind the server", () => {
+    // Client clock 1 h behind: the run still reports 30 s of age.
+    const seenAt = Date.parse("2026-10-13T07:00:31.000Z");
+    const startedAt = runStartedAtOnClient(run, seenAt);
+    expect(seenAt - startedAt).toBe(30_000);
+    expect(kpiRunNeedsRefresh(run, startedAt, seenAt + KPI_RESULT_POLL_CAP_MS - 30_000)).toBe(false);
+  });
+
+  it("prefers the server's clock at the answer (serverNow) to the last heartbeat", () => {
+    // The server answered at 08:00:50, 20 s after the last heartbeat; the client (2 min ahead) saw it at 08:02:51.
+    const answered = { ...run, serverNow: "2026-10-13T08:00:50.000Z" };
+    const seenAt = Date.parse("2026-10-13T08:02:51.000Z");
+    expect(runStartedAtOnClient(answered, seenAt)).toBe(seenAt - 50_000);
+    // An unreadable serverNow falls back to the heartbeat.
+    expect(runStartedAtOnClient({ ...run, serverNow: "garbage" }, seenAt)).toBe(seenAt - 30_000);
+  });
+
+  it("uses the time it was seen when the dates are unreadable or out of order", () => {
+    expect(runStartedAtOnClient({ createdAt: "garbage", updatedAt: run.updatedAt }, 5_000)).toBe(5_000);
+    expect(runStartedAtOnClient({ createdAt: run.updatedAt, updatedAt: run.createdAt }, 5_000)).toBe(5_000);
+    expect(runStartedAtOnClient({ createdAt: run.updatedAt, updatedAt: run.updatedAt, serverNow: run.createdAt }, 5_000)).toBe(5_000);
   });
 });
 
 describe("kpiPollInterval", () => {
   it("backs off 2 s → 5 s after 20 s → 10 s after a minute for result runs", () => {
     const run = makeKpiRun({ status: "running", scope: "result" });
-    expect(kpiPollInterval(run, at(0))).toBe(2_000);
-    expect(kpiPollInterval(run, at(19_999))).toBe(2_000);
-    expect(kpiPollInterval(run, at(20_000))).toBe(5_000);
-    expect(kpiPollInterval(run, at(59_999))).toBe(5_000);
-    expect(kpiPollInterval(run, at(60_000))).toBe(10_000);
-    expect(kpiPollInterval(run, at(KPI_RESULT_POLL_CAP_MS))).toBe(false);
+    expect(kpiPollInterval(run, CREATED, at(0))).toBe(2_000);
+    expect(kpiPollInterval(run, CREATED, at(19_999))).toBe(2_000);
+    expect(kpiPollInterval(run, CREATED, at(20_000))).toBe(5_000);
+    expect(kpiPollInterval(run, CREATED, at(59_999))).toBe(5_000);
+    expect(kpiPollInterval(run, CREATED, at(60_000))).toBe(10_000);
+    expect(kpiPollInterval(run, CREATED, at(KPI_RESULT_POLL_CAP_MS))).toBe(false);
   });
 
   it("starts at 3 s for framework runs and stops after 10 minutes", () => {
     const run = makeKpiRun({ status: "running", scope: "framework", resultId: null });
-    expect(kpiPollInterval(run, at(0))).toBe(3_000);
-    expect(kpiPollInterval(run, at(30_000))).toBe(5_000);
-    expect(kpiPollInterval(run, at(5 * 60_000))).toBe(10_000);
-    expect(kpiPollInterval(run, at(KPI_FRAMEWORK_POLL_CAP_MS))).toBe(false);
+    expect(kpiPollInterval(run, CREATED, at(0))).toBe(3_000);
+    expect(kpiPollInterval(run, CREATED, at(30_000))).toBe(5_000);
+    expect(kpiPollInterval(run, CREATED, at(5 * 60_000))).toBe(10_000);
+    expect(kpiPollInterval(run, CREATED, at(KPI_FRAMEWORK_POLL_CAP_MS))).toBe(false);
   });
 
   it("stops once the run finished", () => {
-    expect(kpiPollInterval(makeKpiRun({ status: "completed" }), at(1_000))).toBe(false);
+    expect(kpiPollInterval(makeKpiRun({ status: "completed" }), CREATED, at(1_000))).toBe(false);
+  });
+});
+
+describe("nextPollCapAt", () => {
+  const running = (scope: "result" | "framework") => makeKpiRun({ status: "running", scope });
+
+  it("is the earliest cap still ahead among running runs", () => {
+    const entries = [
+      { run: running("framework"), startedAt: CREATED, failed: false },
+      { run: running("result"), startedAt: CREATED + 1_000, failed: false },
+    ];
+    expect(nextPollCapAt(entries, at(0))).toBe(CREATED + 1_000 + KPI_RESULT_POLL_CAP_MS);
+    // Once the result run passed its cap, the framework run's cap is next.
+    expect(nextPollCapAt(entries, CREATED + 1_000 + KPI_RESULT_POLL_CAP_MS)).toBe(CREATED + KPI_FRAMEWORK_POLL_CAP_MS);
+    expect(nextPollCapAt(entries, at(KPI_FRAMEWORK_POLL_CAP_MS))).toBeNull();
+  });
+
+  it("ignores waiting requests, failed entries and finished runs", () => {
+    expect(nextPollCapAt([
+      { run: null, startedAt: CREATED, failed: false },
+      { run: running("result"), startedAt: CREATED, failed: true },
+      { run: makeKpiRun({ status: "completed" }), startedAt: CREATED, failed: false },
+    ], at(0))).toBeNull();
   });
 });
 
@@ -269,6 +346,14 @@ describe("warningText", () => {
     const future = { ...makeKpiWarning("sex_added"), code: "future_code" as never, message: "A new note." };
     expect(warningText(en, future)).toBe("A new note.");
   });
+
+  it("translates both levels of level_mismatch_library, and says result_empty", () => {
+    const mismatch = makeKpiWarning("level_mismatch_library", { params: { libraryId: "FS-01", entryLevel: "outcome", level: "output", code: "OP1" } });
+    expect(warningText(en, mismatch)).toBe("Library indicator FS-01 is an Outcome indicator; OP1 is an Output. Check that it measures this level.");
+    expect(warningText(ar, mismatch)).toBe("مؤشر المكتبة FS-01 مؤشر على مستوى المحصّلة، والنتيجة OP1 على مستوى المُخرَج. تحقّق من أنه يقيس هذا المستوى.");
+    const empty = makeKpiWarning("result_empty", { params: { code: "O2" } });
+    expect(warningText(en, empty)).toBe("No suggestions were kept for O2. Ask for suggestions for this result again or add an indicator yourself.");
+  });
 });
 
 describe("requestErrorCode and runErrorCode", () => {
@@ -293,6 +378,16 @@ describe("requestErrorCode and runErrorCode", () => {
     expect(runErrorCode(makeKpiRun({ status: "completed" }))).toBeNull();
   });
 
+  it("knows the codes of accept, reject and write conflicts", () => {
+    expect(requestErrorCode(new ApiError("Has data", 409, "source_has_data"))).toBe("source_has_data");
+    expect(requestErrorCode(new ApiError("Not editable", 400, "not_editable", { keys: ["status"] }))).toBe("not_editable");
+    expect(requestErrorCode(new ApiError("Conflict", 409, "conflict"))).toBe("conflict");
+    expect(kpiErrorText(en, "conflict")).toBe("This change clashed with another change made at the same time, so nothing was saved. Try again.");
+    expect(isRetryableError("conflict")).toBe(true);
+    expect(isRetryableError("source_has_data")).toBe(false);
+    expect(isRetryableError("not_editable")).toBe(false);
+  });
+
   it("offers Retry only where it can help", () => {
     expect(isRetryableError("ai_unavailable")).toBe(true);
     expect(isRetryableError("rate_limited")).toBe(true);
@@ -300,6 +395,36 @@ describe("requestErrorCode and runErrorCode", () => {
     for (const code of ["ai_not_configured", "nothing_to_suggest", "not_suggestable", "budget_reached", "project_archived", "too_many_results"]) {
       expect(isRetryableError(code)).toBe(false);
     }
+  });
+});
+
+describe("requestErrorContext and kpiErrorText (review UX-08)", () => {
+  it("reads why there is nothing to suggest", () => {
+    for (const reason of ["no_results", "level_cap", "donor_cap"]) {
+      expect(requestErrorContext(new ApiError("x", 422, "nothing_to_suggest", { reason }))).toBe(reason);
+    }
+    expect(requestErrorContext(new ApiError("x", 422, "nothing_to_suggest", { reason: "new_reason" }))).toBeUndefined();
+    expect(requestErrorContext(new ApiError("x", 422, "nothing_to_suggest"))).toBeUndefined();
+  });
+
+  it("reads who reached an hourly limit, and nothing for a 429 without a code", () => {
+    expect(requestErrorContext(new ApiError("x", 429, "rate_limited", { scope: "user" }))).toBe("user");
+    expect(requestErrorContext(new ApiError("x", 429, "rate_limited", { scope: "organisation" }))).toBe("organisation");
+    expect(requestErrorContext(new ApiError("x", 429, "rate_limited", { scope: "planet" }))).toBeUndefined();
+    expect(requestErrorContext(new ApiError("Too many requests", 429))).toBeUndefined();
+    // A detail of another code is never read as a context.
+    expect(requestErrorContext(new ApiError("x", 409, "stale", { scope: "user", reason: "donor_cap" }))).toBeUndefined();
+  });
+
+  it("words the limit for the organisation or the person, in both languages", () => {
+    const org = new ApiError("x", 429, "rate_limited", { scope: "organisation" });
+    const user = new ApiError("x", 429, "rate_limited", { scope: "user" });
+    expect(kpiErrorText(en, requestErrorCode(org), requestErrorContext(org))).toBe("Your organisation has reached its hourly limit of KPI suggestions. Try again later.");
+    expect(kpiErrorText(en, requestErrorCode(user), requestErrorContext(user))).toMatch(/^You have reached your hourly limit of AI requests/);
+    expect(kpiErrorText(ar, requestErrorCode(org), requestErrorContext(org))).toBe("بلغت مؤسستك حدّها من اقتراحات المؤشرات لهذه الساعة. حاول لاحقًا.");
+    expect(kpiErrorText(en, "rate_limited")).toBe("Too many requests right now. Wait a minute and try again.");
+    // An unknown context falls back to the generic message.
+    expect(kpiErrorText(en, "rate_limited", "planet")).toBe("Too many requests right now. Wait a minute and try again.");
   });
 });
 

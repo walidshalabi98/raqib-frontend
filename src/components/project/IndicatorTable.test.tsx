@@ -138,10 +138,44 @@ describe("IndicatorTable", () => {
     expect(screen.queryByRole("button", { name: /^Approve / })).not.toBeInTheDocument();
     officer.unmount();
 
-    vi.mocked(api.getFramework).mockResolvedValue(framework("client_review", indicators));
+    // Before the framework is approved, only AI-made indicators get Approve (approving the framework approves the rest).
+    vi.mocked(api.getFramework).mockResolvedValue(framework("client_review", [
+      ...indicators,
+      makeIndicator({ id: "i-3", indicatorText: "Entered by hand", provenance: "manual", isApproved: false }),
+    ]));
     renderAs("org_admin");
-    expect(await screen.findByText("Not yet approved")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Approve / })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Approve Not yet approved" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve Entered by hand" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve Already approved" })).not.toBeInTheDocument();
+  });
+
+  it("lets an org admin approve an accepted KPI suggestion in a draft framework, which removes its AI label (UX-03)", async () => {
+    const user = userEvent.setup({ delay: null });
+    const indicator = makeIndicator({ id: "i-8", indicatorText: "Accepted into a draft", provenance: "ai_suggested", isApproved: false });
+    vi.mocked(api.getFramework).mockResolvedValueOnce(framework("draft", [indicator]))
+      .mockResolvedValue(framework("draft", [{ ...indicator, isApproved: true }]));
+    vi.mocked(api.approveIndicator).mockResolvedValue({ ...indicator, isApproved: true });
+    renderAs("org_admin");
+    expect(await within(await waitFor(() => rowOf("Accepted into a draft"))).findByText(AI_LABEL)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Approve Accepted into a draft" }));
+    await waitFor(() => expect(api.approveIndicator).toHaveBeenCalledWith("i-8"));
+    await waitFor(() => expect(within(rowOf("Accepted into a draft")).queryByText(AI_LABEL)).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Approve Accepted into a draft" })).not.toBeInTheDocument();
+  });
+
+  it("labels unapproved AI-made indicators in the Timeline view too (UX-10)", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.getFramework).mockResolvedValue(framework("approved", [
+      makeIndicator({ id: "i-1", indicatorText: "Unreviewed suggestion", provenance: "ai_suggested", isApproved: false }),
+      makeIndicator({ id: "i-2", indicatorText: "Reviewed suggestion", provenance: "ai_suggested", isApproved: true }),
+      makeIndicator({ id: "i-3", indicatorText: "Hand written", provenance: "manual", isApproved: false }),
+    ]));
+    renderWithClient(<IndicatorTable projectId="p-1" />);
+    await user.click(await screen.findByRole("button", { name: "Timeline" }));
+    expect(screen.queryByRole("columnheader", { name: "Source" })).not.toBeInTheDocument();
+    expect(screen.getAllByText(AI_LABEL)).toHaveLength(1);
+    const unreviewed = screen.getByText("Unreviewed suggestion").closest(".border-b") as HTMLElement;
+    expect(within(unreviewed).getByText(AI_LABEL)).toBeInTheDocument();
   });
 
   it("tells the admin when approving fails", async () => {

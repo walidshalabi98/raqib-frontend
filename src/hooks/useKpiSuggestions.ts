@@ -50,17 +50,18 @@ export function usePendingKpiSuggestions(projectId: string, enabled: boolean): U
 
 /**
  * A run and its suggestions, polled while it runs with the back-off of design 7.4 (kpiPollInterval: 2 s or 3 s, then
- * 5 s after 20 s, then 10 s after a minute) until it finishes or passes the polling cap (2 min, framework 10 min).
+ * 5 s after 20 s, then 10 s after a minute) until it finishes or passes the polling cap (2 min, framework 10 min),
+ * counted from `startedAt`: the client time the run started (runStartedAtOnClient), never the server's createdAt.
  * `null`: no query.
  */
-export function useKpiSuggestionRun(runId: string | null): UseQueryResult<KpiSuggestionRunResponse> {
+export function useKpiSuggestionRun(runId: string | null, startedAt: number): UseQueryResult<KpiSuggestionRunResponse> {
   return useQuery({
     queryKey: queryKeys.kpiSuggestionRun(runId ?? ""),
     queryFn: () => api.getKpiSuggestionRun(runId as string),
     enabled: Boolean(runId),
     refetchInterval: (query) => {
       const run = query.state.data?.run;
-      return run ? kpiPollInterval(run, Date.now()) : false;
+      return run ? kpiPollInterval(run, startedAt, Date.now()) : false;
     },
   });
 }
@@ -109,9 +110,9 @@ export function useAcceptKpiSuggestion(
     mutationFn: ({ id, edits }) => api.acceptKpiSuggestion(id, edits),
     onSuccess: (_response, { id }) => {
       queryClient.setQueryData<KpiSuggestionList>(queryKeys.kpiSuggestions(projectId), (list) => withoutSuggestion(list, id));
+      // The framework data includes the quality check.
       void invalidateFrameworkData(queryClient, { projectId, frameworkId });
       void invalidateKpiSuggestions(queryClient, projectId);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.indicatorQuality(frameworkId) });
     },
     onError: (err) => {
       if (httpStatusOf(err) === 409) void invalidateKpiSuggestions(queryClient, projectId);

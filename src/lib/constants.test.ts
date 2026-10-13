@@ -38,9 +38,11 @@ const everyRequestError: [Missing<KpiRequestErrorCode, (typeof KPI_ERROR_CODES_S
 describe("KPI Assistant constants", () => {
   it("mirror the backend lists (raqib-backend src/services/kpi/types.ts, prisma enums)", () => {
     expect([everyWarningCode, everyRejectReason, everyRunError, everyRequestError]).toEqual([true, true, true, true]);
-    expect(KPI_WARNING_CODES).toHaveLength(29);
+    expect(KPI_WARNING_CODES).toHaveLength(31);
     expect(new Set(KPI_WARNING_CODES).size).toBe(KPI_WARNING_CODES.length);
-    expect(KPI_WARNING_CODES).toEqual(expect.arrayContaining(["arabic_name_from_library", "donor_cap_exceeded", "keyword_fallback"]));
+    expect(KPI_WARNING_CODES).toEqual(expect.arrayContaining([
+      "arabic_name_from_library", "donor_cap_exceeded", "keyword_fallback", "level_mismatch_library", "result_empty",
+    ]));
     expect(KPI_REJECT_REASONS).toEqual(["not_relevant", "too_costly_to_measure", "donor_not_required", "duplicate", "wording", "other"]);
     expect(QUALITY_BANDS).toEqual(["strong", "review", "weak"]);
     expect(KPI_CONFIDENCE_LEVELS).toEqual(["high", "medium", "low"]);
@@ -51,9 +53,9 @@ describe("KPI Assistant constants", () => {
     expect(SUGGESTABLE_LEVELS).toEqual(["impact", "outcome", "output"]);
   });
 
-  it("list the run and request error codes the UI translates, rate_limited included", () => {
-    expect(KPI_ERROR_CODES_SHOWN).toHaveLength(17);
-    expect(new Set(KPI_ERROR_CODES_SHOWN).size).toBe(17);
-    expect(KPI_ERROR_CODES_SHOWN).toContain("rate_limited");
+  it("list the run and request error codes the UI translates, rate_limited and conflict included", () => {
+    expect(KPI_ERROR_CODES_SHOWN).toHaveLength(20);
+    expect(new Set(KPI_ERROR_CODES_SHOWN).size).toBe(20);
+    expect(KPI_ERROR_CODES_SHOWN).toEqual(expect.arrayContaining(["rate_limited", "conflict", "source_has_data", "not_editable"]));
   });
 });
