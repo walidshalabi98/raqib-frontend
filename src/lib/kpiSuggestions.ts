@@ -3,6 +3,7 @@ import { ApiError, httpStatusOf } from "@/lib/apiError";
 import { KPI_ERROR_CODES_SHOWN, KPI_RUN_STEPS_SHOWN, SUGGESTABLE_LEVELS, type KpiShownErrorCode } from "@/lib/constants";
 import type {
   AcceptKpiSuggestionResponse,
+  Indicator,
   KpiRun,
   KpiRunStep,
   KpiSuggestion,
@@ -423,8 +424,13 @@ const NOT_RETRYABLE: ReadonlySet<KpiShownErrorCode> = new Set<KpiShownErrorCode>
   "project_archived", "already_decided", "duplicate", "source_has_data", "not_editable",
 ]);
 
-/** Whether the error state offers Retry. */
-export function isRetryableError(code: string): boolean {
+/**
+ * Whether the error state offers Retry. An hourly limit (429 rate_limited with `details.scope` user or organisation,
+ * requestErrorContext) offers none: pressing it at once meets the same limiter until the hour lapses, and the message
+ * already says to try later (review UX-08, finisher re-check). A per-minute 429 (no code, no scope) keeps Retry.
+ */
+export function isRetryableError(code: string, context?: string | null): boolean {
+  if (code === "rate_limited" && context && (RATE_LIMIT_SCOPES as readonly string[]).includes(context)) return false;
   return !NOT_RETRYABLE.has(code as KpiShownErrorCode);
 }
 
@@ -432,14 +438,37 @@ export function isRetryableError(code: string): boolean {
  * Success toast of an accept (design 9.4, D5): kpi.toast.accepted, or kpi.toast.acceptedOverCap when the response
  * carries donor_cap_exceeded (the result now has more indicators than the donor allows; accept is never blocked).
  */
-export function acceptedToastText(t: TFunction, response: Pick<AcceptKpiSuggestionResponse, "warnings">, code: string): string {
+export function acceptedToastText(
+  t: TFunction,
+  response: Pick<AcceptKpiSuggestionResponse, "warnings" | "replacedIndicatorId">,
+  code: string,
+): string {
   const cap = response.warnings?.find((w) => w.code === "donor_cap_exceeded");
-  if (!cap) return t("kpi.toast.accepted", { code }) as string;
+  if (!cap) return t(response.replacedIndicatorId ? "kpi.toast.acceptedReplaced" : "kpi.toast.accepted", { code }) as string;
   return t("kpi.toast.acceptedOverCap", {
     code,
     count: Number(cap.params.count),
     cap: cap.params.cap,
   }) as string;
+}
+
+/**
+ * The existing indicator a suggestion is an alternative to, when it is still in the framework (SPEC-8): accepting may
+ * replace it (`replaceSource`). Null for any other suggestion, or when that indicator is gone (the server then unlinks
+ * the alternative).
+ */
+export function replaceableSource(
+  suggestion: Pick<KpiSuggestion, "alternativeOfIndicatorId">,
+  indicators: readonly Pick<Indicator, "id" | "indicatorText" | "indicatorTextAr">[] | null | undefined,
+): Pick<Indicator, "id" | "indicatorText" | "indicatorTextAr"> | null {
+  const id = suggestion.alternativeOfIndicatorId;
+  if (!id) return null;
+  return indicators?.find((indicator) => indicator.id === id) ?? null;
+}
+
+/** An indicator's name in the panel language (its Arabic name in Arabic when it has one). */
+export function indicatorNameIn(indicator: Pick<Indicator, "indicatorText" | "indicatorTextAr">, lang: string): string {
+  return lang === "ar" && indicator.indicatorTextAr?.trim() ? indicator.indicatorTextAr : indicator.indicatorText;
 }
 
 // ----------------------------------------------------------------- element ids

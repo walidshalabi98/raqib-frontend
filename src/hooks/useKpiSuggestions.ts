@@ -96,6 +96,13 @@ export function useRequestKpiSuggestions(
   });
 }
 
+/** What an accept sends: the suggestion, the user's edits, and replaceSource for an alternative to an existing indicator (SPEC-8). */
+export interface AcceptKpiSuggestionVariables {
+  id: string;
+  edits?: IndicatorInput;
+  replaceSource?: boolean;
+}
+
 /**
  * Accept (edits = only the changed fields; design 8.1). On success the card leaves the pending list at once and the
  * framework, the suggestions and the quality check are refetched; a 409 (already decided, stale, duplicate) refetches
@@ -104,10 +111,11 @@ export function useRequestKpiSuggestions(
 export function useAcceptKpiSuggestion(
   projectId: string,
   frameworkId: string,
-): UseMutationResult<AcceptKpiSuggestionResponse, ApiError, { id: string; edits?: IndicatorInput }> {
+): UseMutationResult<AcceptKpiSuggestionResponse, ApiError, AcceptKpiSuggestionVariables> {
   const queryClient = useQueryClient();
-  return useMutation<AcceptKpiSuggestionResponse, ApiError, { id: string; edits?: IndicatorInput }>({
-    mutationFn: ({ id, edits }) => api.acceptKpiSuggestion(id, edits),
+  return useMutation<AcceptKpiSuggestionResponse, ApiError, AcceptKpiSuggestionVariables>({
+    mutationFn: ({ id, edits, replaceSource }) =>
+      (replaceSource ? api.acceptKpiSuggestion(id, edits, { replaceSource: true }) : api.acceptKpiSuggestion(id, edits)),
     onSuccess: (_response, { id }) => {
       queryClient.setQueryData<KpiSuggestionList>(queryKeys.kpiSuggestions(projectId), (list) => withoutSuggestion(list, id));
       // The framework data includes the quality check.

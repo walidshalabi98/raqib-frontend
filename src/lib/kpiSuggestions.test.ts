@@ -11,6 +11,7 @@ import {
   bodyForRun,
   focusCandidates,
   groupSuggestions,
+  indicatorNameIn,
   isRetryableError,
   isSuggestableLevel,
   kpiErrorText,
@@ -23,6 +24,7 @@ import {
   qualityBand,
   rejectEffect,
   rejectEffectKeys,
+  replaceableSource,
   requestErrorCode,
   requestErrorContext,
   runErrorCode,
@@ -391,6 +393,11 @@ describe("requestErrorCode and runErrorCode", () => {
   it("offers Retry only where it can help", () => {
     expect(isRetryableError("ai_unavailable")).toBe(true);
     expect(isRetryableError("rate_limited")).toBe(true);
+    // An hourly limit (scope user or organisation) offers no Retry; a per-minute 429 (no scope) does (UX-08 re-check).
+    expect(isRetryableError("rate_limited", "user")).toBe(false);
+    expect(isRetryableError("rate_limited", "organisation")).toBe(false);
+    expect(isRetryableError("rate_limited", "planet")).toBe(true);
+    expect(isRetryableError("internal", "user")).toBe(true);
     expect(isRetryableError("internal")).toBe(true);
     for (const code of ["ai_not_configured", "nothing_to_suggest", "not_suggestable", "budget_reached", "project_archived", "too_many_results"]) {
       expect(isRetryableError(code)).toBe(false);
@@ -434,5 +441,26 @@ describe("acceptedToastText", () => {
     const over = makeKpiWarning("donor_cap_exceeded", { params: { code: "O1", cap: 3, count: 4 } });
     expect(acceptedToastText(en, { warnings: [over] }, "O1")).toBe("Indicator added to O1. O1 now has 4 indicators; the donor allows 3. Remove one.");
     expect(acceptedToastText(ar, { warnings: [over] }, "O1")).toContain("والمانح يسمح بـ3");
+  });
+
+  it("says the replaced indicator was removed (SPEC-8)", () => {
+    expect(acceptedToastText(en, { warnings: [], replacedIndicatorId: "ind-old" }, "O1")).toBe("Indicator added to O1. The indicator it replaces was removed.");
+    expect(acceptedToastText(ar, { warnings: [], replacedIndicatorId: "ind-old" }, "O1")).toContain("أُزيل المؤشر");
+    expect(acceptedToastText(en, { warnings: [], replacedIndicatorId: null }, "O1")).toBe("Indicator added to O1");
+  });
+});
+
+describe("replaceableSource and indicatorNameIn (SPEC-8)", () => {
+  const old = { id: "ind-old", indicatorText: "Number of food baskets distributed", indicatorTextAr: "عدد السلال الغذائية الموزعة" };
+  it("finds the indicator an alternative stands for while it is still in the framework", () => {
+    expect(replaceableSource({ alternativeOfIndicatorId: "ind-old" }, [old])).toBe(old);
+    expect(replaceableSource({ alternativeOfIndicatorId: "ind-old" }, [])).toBeNull();
+    expect(replaceableSource({ alternativeOfIndicatorId: "ind-old" }, undefined)).toBeNull();
+    expect(replaceableSource({ alternativeOfIndicatorId: null }, [old])).toBeNull();
+  });
+  it("names it in the panel language", () => {
+    expect(indicatorNameIn(old, "ar")).toBe("عدد السلال الغذائية الموزعة");
+    expect(indicatorNameIn(old, "en")).toBe("Number of food baskets distributed");
+    expect(indicatorNameIn({ ...old, indicatorTextAr: " " }, "ar")).toBe("Number of food baskets distributed");
   });
 });

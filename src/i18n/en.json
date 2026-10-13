@@ -842,7 +842,8 @@
       "alternativesQueued": "Alternatives are being prepared. Review them on the framework page.",
       "alternativesReady_one": "{{count}} alternative ready. Review it on the framework page.",
       "alternativesReady_other": "{{count}} alternatives ready. Review them on the framework page.",
-      "openFramework": "Open the framework"
+      "openFramework": "Open the framework",
+      "acceptedReplaced": "Indicator added to {{code}}. The indicator it replaces was removed."
     },
     "errors": {
       "ai_not_configured": "AI suggestions are not set up yet. Ask your administrator to add the Anthropic API key.",
@@ -903,6 +904,14 @@
       "result_failed": "No suggestions for {{code}}: the AI answer could not be used or came too late. Try this result again.",
       "result_empty": "No suggestions were kept for {{code}}. Ask for suggestions for this result again or add an indicator yourself.",
       "keyword_fallback": "Semantic search is not available, so candidates were matched by keywords."
+    },
+    "replace": {
+      "title": "Replace the old indicator?",
+      "body": "This suggestion is an alternative to “{{name}}”. Replace removes that indicator from the framework, which works only while it has no data or linked services. Keep both adds this indicator next to it.",
+      "replace": "Replace the old indicator",
+      "keepBoth": "Keep both",
+      "checkbox": "Replace “{{name}}” with this indicator",
+      "checkboxHint": "The old indicator is removed from the framework. This works only while it has no data or linked services."
     }
   }
 }

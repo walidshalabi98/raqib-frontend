@@ -303,10 +303,13 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
     });
   }, [update]);
 
-  // After a reload or remount the list reports runs still running: follow them (design 7.4).
+  // After a reload or remount the list reports runs still running: follow them (design 7.4). A run's age is taken at
+  // the moment the list answered (dataUpdatedAt), not now: a list shown from the cache is minutes old (TQ-07 re-check).
+  const listUpdatedAt = list.dataUpdatedAt;
   useEffect(() => {
     const data = list.data;
     if (!data) return;
+    const seenAt = listUpdatedAt > 0 ? listUpdatedAt : Date.now();
     for (const s of data.suggestions) if (s.resultId) knownResults.current.set(s.id, s.resultId);
     update((prev) => {
       let next = prev;
@@ -315,11 +318,11 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
         if (Object.values(next).some((e) => e.runId === run.id)) continue;
         const key = runTargetKey(run);
         if (isActive(next[key])) continue;
-        next = { ...next, [key]: entryForRun(run, null, runStartedAtOnClient(run, Date.now())) };
+        next = { ...next, [key]: entryForRun(run, null, runStartedAtOnClient(run, seenAt)) };
       }
       return next;
     });
-  }, [list.data, update]);
+  }, [list.data, listUpdatedAt, update]);
 
   const waiting = Object.values(tracked).some((e) => !e.error && !e.run);
   const tickedAt = useTicker(waiting, TICK_MS);
@@ -370,7 +373,7 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
       return {
         code,
         message: kpiErrorText(t, code, entry.error ? entry.errorContext : undefined),
-        ...(body && isRetryableError(code) && { retry: () => request(body) }),
+        ...(body && isRetryableError(code, entry.error ? entry.errorContext : undefined) && { retry: () => request(body) }),
       };
     };
     return {

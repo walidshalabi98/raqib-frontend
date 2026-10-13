@@ -139,7 +139,7 @@ function SourceCell({ indicator, lang }: { indicator: Indicator; lang: AppLangua
   return (
     <div lang={lang} className="flex min-w-0 flex-col items-start gap-1">
       <span className="text-xs text-muted-foreground">{t(`provenance.${indicator.provenance}`)}</span>
-      <StandardBadge libraryId={indicator.libraryId} standardReferenceCode={indicator.standardReferenceCode} lang={lang} />
+      <StandardBadge libraryId={indicator.libraryId} standardReferenceCode={indicator.standardReferenceCode} provenance={indicator.provenance} lang={lang} />
       {indicator.libraryId && indicator.standardReferenceCode && (
         <span className="font-mono text-[10px] text-muted-foreground" dir="ltr">{indicator.libraryId}</span>
       )}
@@ -238,7 +238,8 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
             </Badge>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        {/* Wraps at 375 px, so "New Framework" is never clipped. */}
+        <div className="flex flex-wrap items-center gap-2">
           {/* View toggle */}
           <div className="flex rounded-lg border overflow-hidden">
             <button onClick={() => setView("table")} className={`px-3 py-1.5 text-xs font-medium ${view === "table" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Table</button>
@@ -264,7 +265,8 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
       {/* Table View */}
       {view === "table" && (
         <div className="card-surface overflow-x-auto">
-          <table className="w-full text-sm">
+          {/* A minimum width: on a phone the table scrolls sideways instead of squeezing the indicator names. */}
+          <table className="w-full min-w-[56rem] text-sm">
             <thead className="bg-secondary/50">
               <tr>
                 <th className="w-8" />

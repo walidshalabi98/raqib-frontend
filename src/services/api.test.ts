@@ -175,3 +175,19 @@ describe("api client: an expired access token", () => {
     expect(localStorage.getItem("raqib_token")).toBeNull();
   });
 });
+
+describe("api client: accepting a KPI suggestion (SPEC-8)", () => {
+  it("sends the edits and replaceSource only when given", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(201, { indicator: { id: "i" }, suggestion: { id: "s-1" }, warnings: [], replacedIndicatorId: "ind-old" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const body = (index: number) => JSON.parse(String((fetchMock.mock.calls[index] as unknown as [string, RequestInit])[1].body));
+
+    await api.acceptKpiSuggestion("s-1");
+    await api.acceptKpiSuggestion("s-1", { targetValue: "60%" } as never);
+    const replaced = await api.acceptKpiSuggestion("s-1", undefined, { replaceSource: true });
+    await api.acceptKpiSuggestion("s-1", undefined, { replaceSource: false });
+
+    expect([body(0), body(1), body(2), body(3)]).toEqual([{}, { edits: { targetValue: "60%" } }, { replaceSource: true }, {}]);
+    expect(replaced.replacedIndicatorId).toBe("ind-old");
+  });
+});

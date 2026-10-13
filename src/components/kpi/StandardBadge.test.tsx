@@ -21,4 +21,17 @@ describe("StandardBadge", () => {
     rerender(<StandardBadge libraryId={null} standardReferenceCode={null} lang="ar" />);
     expect(screen.getByText("مخصّص")).toBeInTheDocument();
   });
+
+  it("shows Custom for an AI-written indicator with no library entry, whatever code it carries (SPEC-4)", () => {
+    const { rerender } = render(<StandardBadge libraryId={null} standardReferenceCode="SDG 4.1.1 (aligned)" provenance="ai_suggested" lang="en" />);
+    expect(screen.getByText("Custom")).toBeInTheDocument();
+    expect(screen.queryByText(/SDG 4\.1\.1/)).not.toBeInTheDocument();
+    rerender(<StandardBadge libraryId={null} standardReferenceCode="EU GERF 2.38" provenance="ai_generated" lang="ar" />);
+    expect(screen.getByText("مخصّص")).toBeInTheDocument();
+    // A library-linked AI suggestion keeps its standard code; a code staff typed on their own indicator is shown.
+    rerender(<StandardBadge libraryId="EU-01" standardReferenceCode="EU GERF 2.38" provenance="ai_suggested" lang="en" />);
+    expect(screen.getByText("EU GERF 2.38")).toBeInTheDocument();
+    rerender(<StandardBadge libraryId={null} standardReferenceCode="ECHO KRI 1" provenance="manual" lang="en" />);
+    expect(screen.getByText("ECHO KRI 1")).toBeInTheDocument();
+  });
 });

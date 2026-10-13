@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { AlertCircle, AlertTriangle, Check, CheckCircle2, Clock, Info, Loader2, Plus, Save, Trash2, X } from "lucide-react";
 import { api } from "@/services/api";
-import type { AcceptKpiSuggestionResponse, Indicator, IndicatorInput, KpiSuggestion, ResultNode } from "@/types/api";
+import type { AcceptKpiSuggestionResponse, Framework, Indicator, IndicatorInput, KpiSuggestion, ResultNode } from "@/types/api";
 import { dirFor, type AppLanguage } from "@/i18n";
 import {
   COLLECTION_METHODS,
@@ -46,7 +46,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { invalidateFrameworkData, useDebouncedValue } from "@/hooks/useFrameworkData";
 import { useAcceptKpiSuggestion } from "@/hooks/useKpiSuggestions";
 import { httpStatusOf } from "@/lib/apiError";
-import { acceptedToastText, kpiErrorText, requestErrorCode } from "@/lib/kpiSuggestions";
+import { acceptedToastText, indicatorNameIn, kpiErrorText, replaceableSource, requestErrorCode } from "@/lib/kpiSuggestions";
 import { cn, errorMessage } from "@/lib/utils";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { NativeSelect } from "@/components/common/NativeSelect";
 import { FieldMessage } from "@/components/common/FieldMessage";
 import { AiSuggestedLabel } from "@/components/common/AiSuggestedLabel";
+import { labelWithName } from "@/components/kpi/labelWithName";
 
 /**
  * The indicator reference sheet (knowledge/me-foundations.md §3) as one form,
@@ -72,7 +73,9 @@ import { AiSuggestedLabel } from "@/components/common/AiSuggestedLabel";
  * suggestion with only the fields the user changed (none: accepted as is).
  * Fields that are not part of a suggestion (status, current value, actual
  * dates, milestones: ACCEPT_HIDDEN_FIELDS) are hidden; they are edited after
- * accepting.
+ * accepting. An alternative to an indicator still in the framework shows
+ * "Replace “<old name>” with this indicator" (unticked; sends replaceSource;
+ * 409 source_has_data keeps the form so the officer can untick it; SPEC-8).
  */
 
 /** Props of IndicatorForm (design section 9.5 adds accept mode, `suggestion` and `onAccepted`). */
@@ -158,6 +161,11 @@ export function IndicatorForm({
   const [groupDraft, setGroupDraft] = useState("");
   const [groupError, setGroupError] = useState<FormError | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
+  // Accept mode, an alternative to an indicator still in the framework: replace it (SPEC-8; unchecked by default).
+  const [replaceSource, setReplaceSource] = useState(false);
+  const source = accepting
+    ? replaceableSource(suggestion, queryClient.getQueryData<Framework | null>(queryKeys.framework(projectId))?.indicators)
+    : null;
   const [focusTarget, setFocusTarget] = useState<string | null>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
 
@@ -304,7 +312,8 @@ export function IndicatorForm({
   const acceptMutation = useAcceptKpiSuggestion(projectId, frameworkId);
   const acceptSuggestion = (edits: IndicatorInput | undefined) => {
     if (!suggestion) return;
-    acceptMutation.mutate(edits ? { id: suggestion.id, edits } : { id: suggestion.id }, {
+    const replace = Boolean(source) && replaceSource;
+    acceptMutation.mutate({ id: suggestion.id, ...(edits && { edits }), ...(replace && { replaceSource: true }) }, {
       onSuccess: (response) => {
         const resultId = response.indicator.resultId ?? values.resultId;
         const code = resultNodes.find((n) => n.id === resultId)?.code ?? response.indicator.result?.code ?? suggestion.resultCode;
@@ -313,7 +322,7 @@ export function IndicatorForm({
       },
       onError: (err) => {
         const code = requestErrorCode(err);
-        if (httpStatusOf(err) === 409 && code !== "conflict") {
+        if (httpStatusOf(err) === 409 && code !== "conflict" && code !== "source_has_data") {
           // Decided by someone else, expired (stale) or a duplicate: nothing to fix in the form; the list is refetched.
           toast.error(kpiErrorText(t, code));
           onConflict?.(code);
@@ -321,8 +330,9 @@ export function IndicatorForm({
           return;
         }
         // Anything else keeps the form and the user's edits, so Accept can be pressed again: a write conflict with a
-        // simultaneous change (409 conflict: nothing was saved), a refused field (400 not_editable) or a validation
-        // error. A code the UI knows is shown translated; otherwise the server's message.
+        // simultaneous change (409 conflict: nothing was saved), an indicator that cannot be replaced (409
+        // source_has_data: untick Replace and accept), a refused field (400 not_editable) or a validation error. A code
+        // the UI knows is shown translated; otherwise the server's message.
         const known = (err as { code?: unknown } | null)?.code === code;
         setServerError(known ? kpiErrorText(t, code) : errorMessage(err, t("kpi.toast.acceptFailed")));
         toast.error(t("kpi.toast.acceptFailed"));
@@ -393,6 +403,24 @@ export function IndicatorForm({
     <form noValidate onSubmit={handleSubmit} dir={dir} lang={lang} className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-4">
         {showAiLabel && <AiSuggestedLabel lang={lang} variant="banner" />}
+
+        {source && (
+          <div className="flex items-start gap-3 rounded-md border p-3">
+            <Checkbox
+              id={fid("replaceSource")}
+              checked={replaceSource}
+              onCheckedChange={(checked) => setReplaceSource(checked === true)}
+              aria-describedby={fid("replaceSource-hint")}
+              className="mt-0.5"
+            />
+            <div className="min-w-0 space-y-1">
+              <Label htmlFor={fid("replaceSource")} className="text-sm font-medium leading-snug">
+                {labelWithName(t, "kpi.replace.checkbox", indicatorNameIn(source, lang))}
+              </Label>
+              <p id={fid("replaceSource-hint")} className="text-xs text-muted-foreground">{t("kpi.replace.checkboxHint")}</p>
+            </div>
+          </div>
+        )}
 
         <div
           ref={summaryRef}

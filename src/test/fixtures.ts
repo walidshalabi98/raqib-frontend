@@ -223,7 +223,7 @@ export function makeKpiSuggestion(overrides: KpiSuggestionOverrides = {}): KpiSu
     isCustom: false,
     origin: "model",
     model: "claude-sonnet-5-5",
-    promptVersion: "kpi-v1",
+    promptVersion: "kpi-v2",
     alternativeOfIndicatorId: null,
     alternativeOfSuggestionId: null,
     indicatorId: null,
@@ -256,7 +256,7 @@ export function makeKpiRun(overrides: Partial<KpiRun> = {}): KpiRun {
     suggestionCount: 1,
     retrieval: "keyword",
     model: "claude-sonnet-5-5",
-    promptVersion: "kpi-v1",
+    promptVersion: "kpi-v2",
     createdAt: "2026-10-13T08:00:00.000Z",
     updatedAt: "2026-10-13T08:00:14.000Z",
     finishedAt: "2026-10-13T08:00:14.000Z",
@@ -271,7 +271,7 @@ export function makeKpiSuggestionList(overrides: Partial<KpiSuggestionList> = {}
 
 /** GET /api/kpi-assistant/status. */
 export function makeKpiAssistantStatus(overrides: Partial<KpiAssistantStatus> = {}): KpiAssistantStatus {
-  return { aiConfigured: true, embeddings: "none", promptVersion: "kpi-v1", ...overrides };
+  return { aiConfigured: true, embeddings: "none", promptVersion: "kpi-v2", ...overrides };
 }
 
 /** One row of GET /api/frameworks/:id/indicator-quality. */

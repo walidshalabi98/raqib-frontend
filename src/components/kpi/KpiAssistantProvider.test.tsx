@@ -281,8 +281,9 @@ describe("KpiAssistantProvider (useKpiSuggestions through the components)", () =
     const suggest = lang === "ar" ? "اقتراح مؤشرات للنتيجة O1" : "Suggest KPIs for O1";
     await user.click(await screen.findByRole("button", { name: suggest }));
     expect(await within(row("O1")).findByRole("alert")).toHaveTextContent(message);
-    // Retry stays: the hourly window lapses, and the message says to come back later.
-    expect(within(row("O1")).getByRole("button", { name: retry })).toBeInTheDocument();
+    // No Retry: pressing it now meets the same hourly limiter; the message says to try later (UX-08 re-check).
+    expect(within(row("O1")).queryByRole("button", { name: retry })).not.toBeInTheDocument();
+    expect(api.requestKpiSuggestions).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -324,6 +325,22 @@ describe("KpiAssistantProvider (useKpiSuggestions through the components)", () =
     expect(api.requestKpiSuggestions).toHaveBeenLastCalledWith("p-1", { scope: "result", resultId: "o1" });
     expect(await within(row("O1")).findByRole("heading", { name: "Households with acceptable FCS" })).toBeInTheDocument();
     expect(within(row("O1")).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("times a run adopted from a cached list from when the list answered, not from now (TQ-07 re-check)", async () => {
+    // The list was fetched 3 minutes ago; the run was then 30 s old by the server's clock: 3.5 minutes old now.
+    const cachedAt = Date.now() - 3 * 60_000;
+    const atCache = new Date(cachedAt).toISOString();
+    const run = runningRun({ id: "run-cached", createdAt: new Date(cachedAt - 30_000).toISOString(), updatedAt: atCache, serverNow: atCache });
+    const list = makeKpiSuggestionList({ activeRuns: [run] });
+    vi.mocked(api.getKpiSuggestions).mockResolvedValue(list);
+    vi.mocked(api.getKpiSuggestionRun).mockResolvedValue({ run: { ...run, serverNow: new Date().toISOString() }, suggestions: [] });
+    const client = createTestQueryClient();
+    client.setQueryData(queryKeys.kpiSuggestions("p-1"), list, { updatedAt: cachedAt });
+    renderWithClient(<Chain />, client);
+    // Past the 2-minute cap at once: "taking longer" and Refresh, rather than 3 more minutes of polling.
+    await waitFor(() => expect(within(row("O1")).getAllByText("This is taking longer than expected.").length).toBeGreaterThan(0));
+    expect(within(row("O1")).getByRole("button", { name: "Refresh" })).toBeInTheDocument();
   });
 
   it("resumes a framework run reported by the list after a reload and shows 'taking longer' past the cap", async () => {

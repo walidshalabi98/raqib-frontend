@@ -1,12 +1,16 @@
-import { useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { ChevronDown, Loader2, Sparkles } from "lucide-react";
 import type { AppLanguage } from "@/i18n";
-import type { AcceptKpiSuggestionResponse, KpiSuggestion, ResultNode } from "@/types/api";
+import type { AcceptKpiSuggestionResponse, Framework, KpiSuggestion, ResultNode } from "@/types/api";
 import { useKpiAssistant } from "@/hooks/useKpiAssistant";
 import { useAcceptKpiSuggestion } from "@/hooks/useKpiSuggestions";
-import { acceptedToastText, kpiCardHeadingId, kpiNoticeId, requestErrorCode } from "@/lib/kpiSuggestions";
+import {
+  acceptedToastText, indicatorNameIn, kpiCardHeadingId, kpiNoticeId, replaceableSource, requestErrorCode,
+} from "@/lib/kpiSuggestions";
+import { queryKeys } from "@/lib/queryKeys";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { LevelBadge } from "@/components/common/LevelBadge";
@@ -16,6 +20,7 @@ import { KpiWarningList } from "@/components/kpi/KpiWarningList";
 import { QualityBadge } from "@/components/kpi/QualityBadge";
 import { RejectReasonPicker } from "@/components/kpi/RejectReasonPicker";
 import { StandardBadge } from "@/components/kpi/StandardBadge";
+import { labelWithName } from "@/components/kpi/labelWithName";
 
 export interface KpiSuggestionCardProps {
   suggestion: KpiSuggestion;
@@ -47,7 +52,9 @@ function ModelText({ children, className }: { children: ReactNode; className?: s
  * baseline and target with their basis (document text, standard threshold, target-setting method or pending
  * baseline), custom reason, quality notes and confidence; validation notes; and Accept / Edit & accept / Reject /
  * Show alternatives (accessible names include the indicator name; aria-disabled while an accept runs, so no double
- * accept). The AI never invents numbers: values shown are the server-validated ones (me-foundations §6).
+ * accept). Accept on an alternative to an existing indicator first asks "Replace the old indicator?" inline (Replace
+ * sends replaceSource; Keep both accepts it next to the old one; SPEC-8). The AI never invents numbers: values shown
+ * are the server-validated ones (me-foundations §6).
  */
 export function KpiSuggestionCard({ suggestion, result, nodes, aiLabelId, lang, onDecided }: KpiSuggestionCardProps) {
   const kpi = useKpiAssistant();
@@ -64,6 +71,19 @@ export function KpiSuggestionCard({ suggestion, result, nodes, aiLabelId, lang, 
   const decidedViaDialog = useRef(false);
   const accept = useAcceptKpiSuggestion(kpi.projectId, kpi.frameworkId);
   const busy = accept.isPending;
+  const queryClient = useQueryClient();
+  const [choosingReplace, setChoosingReplace] = useState(false);
+  const replaceHeading = useRef<HTMLHeadingElement>(null);
+  const acceptButton = useRef<HTMLButtonElement>(null);
+  const replaceTitleId = `${baseId}-replace`;
+  const source = replaceableSource(
+    suggestion,
+    queryClient.getQueryData<Framework | null>(queryKeys.framework(kpi.projectId))?.indicators,
+  );
+
+  useEffect(() => {
+    if (choosingReplace) replaceHeading.current?.focus();
+  }, [choosingReplace]);
 
   const hasArabic = ARABIC_LETTER.test(s.nameAr ?? "");
   const arabicFirst = lang === "ar" && hasArabic;
@@ -85,9 +105,8 @@ export function KpiSuggestionCard({ suggestion, result, nodes, aiLabelId, lang, 
     return false;
   };
 
-  const acceptNow = (event: MouseEvent<HTMLButtonElement>) => {
-    if (blockWhileBusy(event)) return;
-    accept.mutateAsync({ id: suggestion.id }).then(
+  const sendAccept = (replaceSource: boolean) => {
+    accept.mutateAsync(replaceSource ? { id: suggestion.id, replaceSource } : { id: suggestion.id }).then(
       (response: AcceptKpiSuggestionResponse) => {
         toast.success(acceptedToastText(t, response, result.code));
         onDecided?.("accepted", suggestion);
@@ -96,8 +115,24 @@ export function KpiSuggestionCard({ suggestion, result, nodes, aiLabelId, lang, 
         const code = requestErrorCode(err);
         toast.error(t("kpi.toast.acceptFailed"), { description: code === "internal" ? undefined : t(`kpi.errors.${code}`) });
         if (code === "already_decided" || code === "stale") onDecided?.("dismissed", suggestion);
+        // source_has_data keeps the choice open: Keep both still works.
       },
     );
+  };
+
+  const acceptNow = (event: MouseEvent<HTMLButtonElement>) => {
+    if (blockWhileBusy(event)) return;
+    // An alternative to an indicator still in the framework: ask whether it replaces that indicator (SPEC-8).
+    if (source) {
+      setChoosingReplace(true);
+      return;
+    }
+    sendAccept(false);
+  };
+
+  const closeReplaceChoice = () => {
+    setChoosingReplace(false);
+    requestAnimationFrame(() => acceptButton.current?.focus());
   };
 
   const requestAlternatives = (event: MouseEvent<HTMLButtonElement>) => {
@@ -169,7 +204,7 @@ export function KpiSuggestionCard({ suggestion, result, nodes, aiLabelId, lang, 
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <LevelBadge level={suggestion.level} label={t(`level.${suggestion.level}`)} />
-        <StandardBadge libraryId={suggestion.libraryId} standardReferenceCode={s.standardReferenceCode} lang={lang} />
+        <StandardBadge libraryId={suggestion.libraryId} standardReferenceCode={s.standardReferenceCode} provenance="ai_suggested" lang={lang} />
         <QualityBadge score={suggestion.qualityScore} band={suggestion.qualityBand} lang={lang} />
         <MethodPill method={s.method} label={t(`methodShort.${s.method}`)} />
         <span className="text-xs text-muted-foreground">{t("kpi.card.frequency", { value: t(`frequency.${s.frequency}`) })}</span>
@@ -229,7 +264,48 @@ export function KpiSuggestionCard({ suggestion, result, nodes, aiLabelId, lang, 
         </div>
       )}
 
-      {rejecting ? (
+      {choosingReplace && source && !rejecting ? (
+        <section aria-labelledby={replaceTitleId} className="mt-3 space-y-2 rounded-md border bg-secondary/40 p-3">
+          <h5 id={replaceTitleId} ref={replaceHeading} tabIndex={-1} className="text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            {t("kpi.replace.title")}
+          </h5>
+          <p className="text-sm">
+            {labelWithName(t, "kpi.replace.body", indicatorNameIn(source, lang))}
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+            <Button
+              type="button"
+              size="sm"
+              className="min-h-11 whitespace-normal sm:min-h-9"
+              aria-disabled={busy ? "true" : undefined}
+              onClick={(event) => { if (!blockWhileBusy(event)) sendAccept(true); }}
+            >
+              {busy && <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />}
+              {t("kpi.replace.replace")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="min-h-11 whitespace-normal sm:min-h-9"
+              aria-disabled={busy ? "true" : undefined}
+              onClick={(event) => { if (!blockWhileBusy(event)) sendAccept(false); }}
+            >
+              {t("kpi.replace.keepBoth")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="min-h-11 whitespace-normal sm:min-h-9"
+              aria-disabled={busy ? "true" : undefined}
+              onClick={(event) => { if (!blockWhileBusy(event)) closeReplaceChoice(); }}
+            >
+              {t("common.cancel")}
+            </Button>
+          </div>
+        </section>
+      ) : rejecting ? (
         <div className="mt-3">
           <RejectReasonPicker
             suggestion={suggestion}
@@ -245,6 +321,7 @@ export function KpiSuggestionCard({ suggestion, result, nodes, aiLabelId, lang, 
       ) : (
         <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <Button
+            ref={acceptButton}
             type="button"
             size="sm"
             className="min-h-11 whitespace-normal sm:min-h-9"

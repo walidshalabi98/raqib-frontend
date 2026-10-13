@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { AlertCircle } from "lucide-react";
-import { dirFor, type AppLanguage } from "@/i18n";
+import { dirFor } from "@/i18n";
+import { labelWithName } from "@/components/kpi/labelWithName";
 import type { Framework, KpiRun, KpiSuggestion, ResultNode } from "@/types/api";
 import { useKpiAssistant } from "@/hooks/useKpiAssistant";
 import { queryKeys } from "@/lib/queryKeys";
@@ -44,25 +45,6 @@ function nameIn(suggestion: KpiSuggestion, lang: string): string {
 }
 
 type T = ReturnType<typeof useTranslation>["t"];
-
-/** Stands for the name while the label is translated (a private-use character no translation contains). */
-const NAME_SLOT = "\uE000";
-
-/**
- * A translated label with `{{name}}` in a <bdi> carrying the name's own language (Arabic letters → ar, else en), so an
- * English indicator name inside an Arabic label keeps its reading order and is read with the English voice (WCAG
- * 3.1.2; review UX-12).
- */
-function labelWithName(t: T, key: string, name: string): ReactNode {
-  const nameLang: AppLanguage = ARABIC_LETTER.test(name) ? "ar" : "en";
-  const parts = (t(key, { name: NAME_SLOT }) as string).split(NAME_SLOT);
-  return parts.map((part, index) => (index === 0 ? part : (
-    <Fragment key={index}>
-      <bdi lang={nameLang} dir="auto">{name}</bdi>
-      {part}
-    </Fragment>
-  )));
-}
 
 /**
  * The KPI Assistant under one result (knowledge/kpi-assistant-spec.md §A2, §A7; design 9.1 and 9.4): progress of a

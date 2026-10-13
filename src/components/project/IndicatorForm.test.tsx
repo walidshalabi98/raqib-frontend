@@ -6,7 +6,8 @@ import { IndicatorDialog } from "@/components/project/IndicatorDialog";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { api } from "@/services/api";
 import { toast } from "sonner";
-import { renderWithClient } from "@/test/utils";
+import { createTestQueryClient, nameWithIsolatedPart, renderWithClient } from "@/test/utils";
+import { queryKeys } from "@/lib/queryKeys";
 import { ApiError } from "@/lib/apiError";
 import { makeIndicator, makeKpiSuggestion, makeKpiWarning, sampleResultNodes } from "@/test/fixtures";
 import type { AcceptKpiSuggestionResponse, AuthUser } from "@/types/api";
@@ -491,7 +492,7 @@ describe("IndicatorForm accept mode (Edit & accept, design 9.5)", { timeout: 20_
     expect(provenance).toHaveValue("AI suggested");
     expect(provenance).toHaveAttribute("readonly");
     expect(provenance).toHaveAccessibleDescription(exactly("Set by Raqib when you accept: AI suggested."));
-    expect(screen.getByLabelText("AI model")).toHaveValue("claude-sonnet-5-5 · kpi-v1");
+    expect(screen.getByLabelText("AI model")).toHaveValue("claude-sonnet-5-5 · kpi-v2");
     expect(screen.getByRole("button", { name: "Accept indicator" })).toBeInTheDocument();
     // The library lookup confirms where the indicator comes from.
     expect(await screen.findByText("In the library: Food Consumption Score", {}, { timeout: 2000 })).toBeInTheDocument();
@@ -590,6 +591,45 @@ describe("IndicatorForm accept mode (Edit & accept, design 9.5)", { timeout: 20_
     await user.click(screen.getByRole("button", { name: "Accept indicator" }));
     await waitFor(() => expect(onAccepted).toHaveBeenCalled());
     expect(vi.mocked(api.acceptKpiSuggestion).mock.calls[1]).toEqual(["s-1", { targetValue: "60%" }]);
+  });
+
+  it("offers to replace the indicator an alternative stands for, and sends replaceSource only when ticked (SPEC-8)", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.acceptKpiSuggestion)
+      .mockRejectedValueOnce(new ApiError("Has data", 409, "source_has_data"))
+      .mockResolvedValueOnce(acceptResponse({ replacedIndicatorId: null }));
+    const client = createTestQueryClient();
+    client.setQueryDefaults(queryKeys.framework("p-1"), { gcTime: Infinity });
+    client.setQueryData(queryKeys.framework("p-1"), {
+      id: "fw-1", projectId: "p-1", version: 1, status: "draft", name: null, aiModelUsed: null, generatedAt: "2026-10-01T00:00:00.000Z",
+      approvedAt: null, approvedBy: null, resultNodes: nodes,
+      indicators: [makeIndicator({ id: "ind-old", indicatorText: "Number of food baskets distributed" })],
+    });
+    const onAccepted = vi.fn();
+    const onCancel = vi.fn();
+    renderWithClient(
+      <IndicatorForm mode="accept" projectId="p-1" frameworkId="fw-1" resultNodes={nodes} lang="en"
+        suggestion={{ ...suggestion, alternativeOfIndicatorId: "ind-old" }} onAccepted={onAccepted} onSaved={vi.fn()} onCancel={onCancel} />,
+      client,
+    );
+    const replace = screen.getByRole("checkbox", { name: nameWithIsolatedPart("Replace “Number of food baskets distributed” with this indicator") });
+    expect(replace).not.toBeChecked();
+    expect(replace).toHaveAccessibleDescription("The old indicator is removed from the framework. This works only while it has no data or linked services.");
+    await user.click(replace);
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    await waitFor(() => expect(api.acceptKpiSuggestion).toHaveBeenCalledWith("s-1", undefined, { replaceSource: true }));
+    // The old indicator holds data: the form stays with the reason, so the officer can untick Replace and accept.
+    expect(await screen.findByText(/already has data or linked services/)).toBeInTheDocument();
+    expect(onCancel).not.toHaveBeenCalled();
+    await user.click(replace);
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    await waitFor(() => expect(onAccepted).toHaveBeenCalled());
+    expect(vi.mocked(api.acceptKpiSuggestion).mock.calls[1]).toEqual(["s-1", undefined]);
+  });
+
+  it("shows no replace choice for a suggestion that is not an alternative to an existing indicator", () => {
+    renderAccept();
+    expect(screen.queryByRole("checkbox", { name: /^Replace/ })).not.toBeInTheDocument();
   });
 
   it("shows a refused field (400 not_editable) in the UI language, not the server's English", async () => {

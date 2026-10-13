@@ -68,7 +68,7 @@ export function ResultIndicatorList({ id, labelledBy, result, indicators, qualit
             </p>
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <span className="text-xs text-muted-foreground">{t(`provenance.${indicator.provenance}`)}</span>
-              <StandardBadge libraryId={indicator.libraryId} standardReferenceCode={indicator.standardReferenceCode} lang={lang} />
+              <StandardBadge libraryId={indicator.libraryId} standardReferenceCode={indicator.standardReferenceCode} provenance={indicator.provenance} lang={lang} />
               {indicator.libraryId && indicator.standardReferenceCode && (
                 <span className="font-mono text-xs text-muted-foreground" dir="ltr">{indicator.libraryId}</span>
               )}

@@ -7,8 +7,9 @@ import { api } from "@/services/api";
 import { ApiError } from "@/lib/apiError";
 import { KpiAssistantContext, type KpiAssistantValue } from "@/hooks/useKpiAssistant";
 import { KpiSuggestionCard } from "@/components/kpi/KpiSuggestionCard";
-import type { AcceptKpiSuggestionResponse, KpiSuggestion } from "@/types/api";
-import { renderWithClient } from "@/test/utils";
+import type { AcceptKpiSuggestionResponse, Framework, KpiSuggestion } from "@/types/api";
+import { createTestQueryClient, renderWithClient } from "@/test/utils";
+import { queryKeys } from "@/lib/queryKeys";
 import {
   makeIndicator,
   makeKpiAssistantValue,
@@ -39,10 +40,16 @@ function acceptResponse(overrides: Partial<AcceptKpiSuggestionResponse> = {}): A
 }
 
 function renderCard(
-  props: { suggestion?: KpiSuggestion; lang?: "en" | "ar" } = {},
+  props: { suggestion?: KpiSuggestion; lang?: "en" | "ar"; framework?: Framework } = {},
   value: KpiAssistantValue = makeKpiAssistantValue({ lang: props.lang ?? "en" }),
 ) {
   const onDecided = vi.fn<(outcome: "accepted" | "rejected" | "dismissed", suggestion: KpiSuggestion) => void>();
+  const client = createTestQueryClient();
+  if (props.framework) {
+    // In the app the indicator table observes the framework query, so it stays cached while the card is shown.
+    client.setQueryDefaults(queryKeys.framework("p-1"), { gcTime: Infinity });
+    client.setQueryData(queryKeys.framework("p-1"), props.framework);
+  }
   const utils = renderWithClient(
     <KpiAssistantContext.Provider value={value}>
       <p id="ai-label">AI suggested — review before approval</p>
@@ -55,9 +62,19 @@ function renderCard(
         onDecided={onDecided}
       />
     </KpiAssistantContext.Provider>,
+    client,
   );
   return { ...utils, onDecided };
 }
+
+/** A framework whose indicator "ind-old" the alternative below would replace. */
+const OLD_NAME = "Number of food baskets distributed";
+const frameworkWithOld = (): Framework => ({
+  id: "fw-1", projectId: "p-1", version: 1, status: "draft", name: null, aiModelUsed: null, generatedAt: "2026-10-01T00:00:00.000Z",
+  approvedAt: null, approvedBy: null, resultNodes: nodes,
+  indicators: [makeIndicator({ id: "ind-old", indicatorText: OLD_NAME, indicatorTextAr: "عدد السلال الغذائية الموزعة" })],
+});
+const alternativeOfOld = () => makeKpiSuggestion({ alternativeOfIndicatorId: "ind-old" });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -147,7 +164,9 @@ describe("KpiSuggestionCard", () => {
     expect(screen.getByText("سبب اقتراح مؤشر مخصّص")).toBeInTheDocument();
     expect(screen.getByText("No library indicator covers water trucking.")).toHaveAttribute("lang", "en");
     expect(screen.getByText("كتبها الذكاء الاصطناعي بالإنجليزية.")).toBeInTheDocument();
-    expect(screen.getAllByText("Sphere minimum 15 l/p/d")[0]).toHaveAttribute("dir", "ltr");
+    // SPEC-4: a custom suggestion's badge says Custom; a code the model wrote is not shown as a standard reference.
+    expect(screen.getByText("مخصّص")).toBeInTheDocument();
+    expect(screen.queryAllByText("Sphere minimum 15 l/p/d")).toHaveLength(0);
   });
 
   it("lists its validation notes with icons", () => {
@@ -208,6 +227,52 @@ describe("KpiSuggestionCard", () => {
     vi.mocked(api.acceptKpiSuggestion).mockRejectedValueOnce(new ApiError("Decided", 409, "already_decided"));
     await user.click(screen.getByRole("button", { name: `Accept “${NAME}”` }));
     await waitFor(() => expect(onDecided).toHaveBeenCalledWith("dismissed", expect.objectContaining({ id: "s-1" })));
+  });
+
+  it("asks whether an alternative replaces the indicator it is an alternative to (SPEC-8): Replace sends replaceSource", async () => {
+    vi.mocked(api.acceptKpiSuggestion).mockResolvedValue(acceptResponse({ replacedIndicatorId: "ind-old" }));
+    const user = userEvent.setup({ delay: null });
+    const { onDecided } = renderCard({ suggestion: alternativeOfOld(), framework: frameworkWithOld() });
+    await user.click(screen.getByRole("button", { name: `Accept “${NAME}”` }));
+    const choice = screen.getByRole("region", { name: "Replace the old indicator?" });
+    expect(within(choice).getByRole("heading", { name: "Replace the old indicator?" })).toHaveFocus();
+    expect(choice).toHaveTextContent(`This suggestion is an alternative to “${OLD_NAME}”.`);
+    expect(api.acceptKpiSuggestion).not.toHaveBeenCalled();
+    await user.click(within(choice).getByRole("button", { name: "Replace the old indicator" }));
+    await waitFor(() => expect(api.acceptKpiSuggestion).toHaveBeenCalledWith("s-1", undefined, { replaceSource: true }));
+    await waitFor(() => expect(onDecided).toHaveBeenCalledWith("accepted", expect.objectContaining({ id: "s-1" })));
+    expect(toast.success).toHaveBeenCalledWith("Indicator added to O1. The indicator it replaces was removed.");
+  });
+
+  it("Keep both accepts without replacing; Cancel returns to Accept; an indicator with data cannot be replaced (SPEC-8)", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { onDecided } = renderCard({ suggestion: alternativeOfOld(), framework: frameworkWithOld(), lang: "ar" });
+    const acceptAr = () => screen.getByRole("button", { name: /^قبول/ });
+    await user.click(acceptAr());
+    const choice = screen.getByRole("region", { name: "استبدال المؤشر القديم؟" });
+    // The old indicator's Arabic name, isolated in its own <bdi>.
+    expect(within(choice).getByText("عدد السلال الغذائية الموزعة").tagName).toBe("BDI");
+    await user.click(within(choice).getByRole("button", { name: "إلغاء" }));
+    expect(screen.queryByRole("region", { name: "استبدال المؤشر القديم؟" })).not.toBeInTheDocument();
+    await waitFor(() => expect(acceptAr()).toHaveFocus());
+
+    vi.mocked(api.acceptKpiSuggestion).mockRejectedValueOnce(new ApiError("Has data", 409, "source_has_data"));
+    await user.click(acceptAr());
+    await user.click(screen.getByRole("button", { name: "استبدال المؤشر القديم" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    expect(onDecided).not.toHaveBeenCalled();
+    // The choice stays, so the officer can keep both.
+    await user.click(screen.getByRole("button", { name: "الإبقاء على الاثنين" }));
+    await waitFor(() => expect(api.acceptKpiSuggestion).toHaveBeenLastCalledWith("s-1", undefined));
+    await waitFor(() => expect(onDecided).toHaveBeenCalledWith("accepted", expect.objectContaining({ id: "s-1" })));
+  });
+
+  it("accepts at once when the indicator it was an alternative to is gone, or for any other suggestion", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderCard({ suggestion: alternativeOfOld(), framework: { ...frameworkWithOld(), indicators: [] } });
+    await user.click(screen.getByRole("button", { name: `Accept “${NAME}”` }));
+    expect(screen.queryByRole("region", { name: "Replace the old indicator?" })).not.toBeInTheDocument();
+    await waitFor(() => expect(api.acceptKpiSuggestion).toHaveBeenCalledWith("s-1", undefined));
   });
 
   it("asks for alternatives to this suggestion, unless a run for the result is active", async () => {

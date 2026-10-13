@@ -28,6 +28,7 @@ import type {
   ProjectInput,
   ProjectUpdateInput,
   QualitativeEntryCreateResponse,
+  AcceptKpiSuggestionBody,
   AcceptKpiSuggestionResponse,
   RejectKpiSuggestionBody,
   RequestKpiSuggestionsBody,
@@ -380,10 +381,18 @@ class ApiClient {
   }
 
   /** Accepts a suggestion; `edits` holds only the fields the user changed (none: accepted as suggested). */
-  async acceptKpiSuggestion(id: string, edits?: IndicatorInput) {
+  /**
+   * Accepts a suggestion, with the user's edits (draft fields only) and, for an alternative to an existing indicator,
+   * `replaceSource` to remove that indicator in the same transaction (409 source_has_data when it holds data).
+   */
+  async acceptKpiSuggestion(id: string, edits?: IndicatorInput, options: { replaceSource?: boolean } = {}) {
+    const body: AcceptKpiSuggestionBody = {
+      ...(edits && { edits }),
+      ...(options.replaceSource && { replaceSource: true }),
+    };
     return this.request<AcceptKpiSuggestionResponse>(`/kpi-suggestions/${id}/accept`, {
       method: 'POST',
-      body: JSON.stringify(edits ? { edits } : {}),
+      body: JSON.stringify(body),
     });
   }
 
