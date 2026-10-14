@@ -222,7 +222,18 @@ export function KpiSuggestionCard({ suggestion, result, nodes, aiLabelId, lang, 
       )}
 
       <div className="mt-2 flex min-w-0 items-start gap-2">
-        <p className="min-w-0 flex-1 line-clamp-1 text-muted-foreground"><ModelText>{s.rationale}</ModelText></p>
+        {/*
+          One line of the English rationale, cut with an ellipsis. Its language and direction are on the cut block itself,
+          so the ellipsis ends the English text (in an Arabic panel an RTL block put it before the text). A short line
+          sits at the panel's start (text-end in an Arabic panel); a long one fills the line from its own start.
+        */}
+        <p
+          lang="en"
+          dir="ltr"
+          className={cn("min-w-0 flex-1 truncate text-muted-foreground", lang === "ar" ? "text-end" : "text-start")}
+        >
+          {s.rationale}
+        </p>
         <Button
           type="button"
           variant="link"

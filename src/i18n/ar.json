@@ -1071,9 +1071,9 @@
       "low": "منخفضة"
     },
     "quality": {
-      "strong": "قوي",
-      "review": "يحتاج إلى مراجعة",
-      "weak": "ضعيف",
+      "strong": "قوية",
+      "review": "تحتاج إلى مراجعة",
+      "weak": "ضعيفة",
       "label": "الجودة: {{band}} ({{score}}/100)"
     },
     "severity": {
@@ -1154,7 +1154,7 @@
       "alternativesReady_many": "{{count}} بديلًا جاهزًا. راجِعها في صفحة الإطار.",
       "alternativesReady_other": "{{count}} بديل جاهز. راجِعها في صفحة الإطار.",
       "openFramework": "فتح الإطار",
-      "acceptedReplaced": "أُضيف المؤشر إلى النتيجة {{code}}، وأُزيل المؤشر الذي حلّ محلّه."
+      "acceptedReplaced": "أُضيف المؤشر إلى النتيجة {{code}}، وحُذف المؤشر القديم الذي حلّ هذا المؤشر محلّه."
     },
     "errors": {
       "ai_not_configured": "اقتراحات الذكاء الاصطناعي غير مفعّلة بعد. اطلب من المسؤول إضافة مفتاح Anthropic API.",

@@ -592,7 +592,9 @@ export function buildUpdatePayload(indicator: Indicator, values: IndicatorFormVa
 
 /**
  * The keys an accept may change (mirror of the backend DRAFT_EDITABLE_KEYS, raqib-backend src/services/kpi/draft.ts;
- * design 8.1): the fields of a suggestion's draft. The server drops any other key of the edits without an error.
+ * design 8.1): the fields of a suggestion's draft. The server refuses any other key with 400 not_editable
+ * (`details.keys`; raqib-backend src/services/kpi/accept.ts parseAcceptBody), except the server-set provenance,
+ * aiModel, promptVersion, phases and sortOrder, which it ignores.
  */
 export const ACCEPT_EDITABLE_KEYS = [
   "indicatorText", "indicatorTextAr", "level", "resultId", "libraryId", "standardReferenceCode", "definition", "unit",
@@ -614,7 +616,7 @@ const ACCEPT_EDITABLE = new Set<string>(ACCEPT_EDITABLE_KEYS);
 /**
  * The edits sent when a KPI suggestion is accepted from the form (design sections 8.1 and 9.5): the fields whose
  * values differ from the suggestion's draft, both sides converted the same way so formatting never counts as an
- * edit, and only ACCEPT_EDITABLE_KEYS (nothing the server would drop); `undefined` when nothing changed (the
+ * edit, and only ACCEPT_EDITABLE_KEYS (nothing the server would refuse); `undefined` when nothing changed (the
  * suggestion is then accepted as is, status `accepted`).
  */
 export function acceptEdits(draft: IndicatorFormSource, values: IndicatorFormValues): IndicatorInput | undefined {

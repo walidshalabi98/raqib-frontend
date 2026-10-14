@@ -1,4 +1,5 @@
-import { Fragment, useState } from "react";
+import { Fragment, useId, useState } from "react";
+import type { TFunction } from "i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api } from "@/services/api";
@@ -8,6 +9,7 @@ import { StatusDot } from "@/components/common/StatusDot";
 import { LevelBadge } from "@/components/common/LevelBadge";
 import { AiSuggestedLabel } from "@/components/common/AiSuggestedLabel";
 import { StandardBadge } from "@/components/kpi/StandardBadge";
+import { labelWithName, nameLanguage } from "@/components/kpi/labelWithName";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -147,6 +149,38 @@ function SourceCell({ indicator, lang }: { indicator: Indicator; lang: AppLangua
   );
 }
 
+/** An indicator's name in the user's language: the Arabic name when the user reads Arabic and there is one. */
+function indicatorNameFor(indicator: Pick<Indicator, "indicatorText" | "indicatorTextAr">, lang: AppLanguage): string {
+  return lang === "ar" && indicator.indicatorTextAr ? indicator.indicatorTextAr : indicator.indicatorText;
+}
+
+/** The name a row shows (indicatorNameFor); an Arabic name is marked as Arabic on this English screen. */
+function IndicatorName({ indicator, lang }: { indicator: Indicator; lang: AppLanguage }) {
+  const name = indicatorNameFor(indicator, lang);
+  return nameLanguage(name) === "ar" ? <span lang="ar" dir="rtl">{name}</span> : <>{name}</>;
+}
+
+/**
+ * Edit and Approve in a row: 44 px tall on phones (UX_STANDARDS §7), 28 px from sm up where the table has room.
+ * Replaces size sm's padding; its h-9 stays, and min-h-11 lifts it below sm.
+ */
+const ROW_ACTION_CLASS = "min-h-11 px-2 sm:h-7 sm:min-h-0";
+
+/**
+ * The accessible name of a row action, "<action> <indicator name>" (`key`, e.g. "Approve {{name}}"), naming the
+ * indicator as the row shows it (indicatorNameFor). A name in the label's language goes in aria-label. A name in the
+ * other language (an English name in an Arabic label, when the indicator has no Arabic name) is marked with its own
+ * language as labelWithName does (WCAG 3.1.2): the label is then a hidden element, referenced by aria-labelledby, so
+ * the name is not repeated on screen or in find-in-page. The visible word starts the label either way (WCAG 2.5.3).
+ */
+function rowActionName(t: TFunction, key: string, name: string, lang: AppLanguage, labelId: string) {
+  if (nameLanguage(name) === lang) return { props: { "aria-label": t(key, { name }) }, label: null };
+  return {
+    props: { "aria-labelledby": labelId },
+    label: <span id={labelId} hidden>{labelWithName(t, key, name)}</span>,
+  };
+}
+
 /**
  * The framework's indicators as a table or a timeline, with the results chain panel (and its KPI Assistant) above.
  * Phase 4 (design section 9.5, D18): a Source column, the "AI suggested — review before approval" label until the
@@ -165,6 +199,7 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
   const lang = useUserLanguage();
   const { t } = useTranslation(undefined, { lng: lang });
   const { role } = usePermissions();
+  const baseId = useId();
 
   const { data: framework, isLoading } = useQuery({
     queryKey: queryKeys.framework(projectId),
@@ -189,20 +224,44 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
   const approvingId = approveMutation.isPending ? approveMutation.variables?.id : undefined;
 
   // This screen is English apart from the translated parts, so those carry their own lang (WCAG 3.1.2).
-  const editButton = (ind: Indicator) => (
-    <IndicatorDialog
-      mode="edit"
-      projectId={projectId}
-      frameworkId={ind.frameworkId}
-      indicator={ind}
-      resultNodes={resultNodes}
-      trigger={
-        <Button variant="ghost" size="sm" className="h-7 px-2" lang={lang} aria-label={t("indicatorTable.editIndicator", { name: ind.indicatorText })}>
-          <Pencil aria-hidden="true" className="h-3 w-3 me-1" /> {t("indicatorTable.edit")}
-        </Button>
-      }
-    />
-  );
+  const editButton = (ind: Indicator) => {
+    const name = rowActionName(t, "indicatorTable.editIndicator", indicatorNameFor(ind, lang), lang, `${baseId}-edit-${ind.id}`);
+    return (
+      <IndicatorDialog
+        mode="edit"
+        projectId={projectId}
+        frameworkId={ind.frameworkId}
+        indicator={ind}
+        resultNodes={resultNodes}
+        trigger={
+          <Button variant="ghost" size="sm" className={ROW_ACTION_CLASS} lang={lang} {...name.props}>
+            <Pencil aria-hidden="true" className="h-3 w-3 me-1" /> {t("indicatorTable.edit")}
+            {name.label}
+          </Button>
+        }
+      />
+    );
+  };
+  const approveButton = (ind: Indicator) => {
+    const name = rowActionName(t, "indicatorTable.approveIndicator", indicatorNameFor(ind, lang), lang, `${baseId}-approve-${ind.id}`);
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        className={ROW_ACTION_CLASS}
+        lang={lang}
+        {...name.props}
+        aria-disabled={approvingId ? "true" : undefined}
+        onClick={() => { if (!approveMutation.isPending) approveMutation.mutate(ind); }}
+      >
+        {approvingId === ind.id
+          ? <Loader2 aria-hidden="true" className="h-3 w-3 me-1 animate-spin" />
+          : <BadgeCheck aria-hidden="true" className="h-3 w-3 me-1" />}
+        {t("indicatorTable.approve")}
+        {name.label}
+      </Button>
+    );
+  };
 
   if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="h-5 w-5 animate-spin" /></div>;
 
@@ -308,7 +367,7 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
                       {expanded === ind.id ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
                     </td>
                     <td className="px-3 py-3 font-medium max-w-[250px]">
-                      <div>{lang === "ar" && ind.indicatorTextAr ? <span lang="ar" dir="rtl">{ind.indicatorTextAr}</span> : ind.indicatorText}</div>
+                      <div><IndicatorName indicator={ind} lang={lang} /></div>
                       {ind.result && (
                         <span className="mt-0.5 inline-block font-mono text-[10px] text-muted-foreground" title={ind.result.text} dir="ltr">
                           {ind.result.code}
@@ -334,24 +393,10 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
                     <td className="px-3 py-3 text-center"><StatusDot status={ind.status} showLabel /></td>
                     {canEdit && (
                       <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex flex-col items-center gap-1">
+                        {/* 8 px apart on phones, so a slip of the finger on Edit does not approve. */}
+                        <div className="flex flex-col items-center gap-2 sm:gap-1">
                           {editButton(ind)}
-                          {canApproveIndicator(role, ind, framework.status) && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 px-2"
-                              lang={lang}
-                              aria-label={t("indicatorTable.approveIndicator", { name: ind.indicatorText })}
-                              aria-disabled={approvingId ? "true" : undefined}
-                              onClick={() => { if (!approveMutation.isPending) approveMutation.mutate(ind); }}
-                            >
-                              {approvingId === ind.id
-                                ? <Loader2 aria-hidden="true" className="h-3 w-3 me-1 animate-spin" />
-                                : <BadgeCheck aria-hidden="true" className="h-3 w-3 me-1" />}
-                              {t("indicatorTable.approve")}
-                            </Button>
-                          )}
+                          {canApproveIndicator(role, ind, framework.status) && approveButton(ind)}
                         </div>
                       </td>
                     )}
@@ -428,7 +473,7 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <LevelBadge level={ind.level} />
-                      <span className="text-sm font-medium truncate">{ind.indicatorText}</span>
+                      <span className="text-sm font-medium truncate"><IndicatorName indicator={ind} lang={lang} /></span>
                     </div>
                     {needsAiReviewLabel(ind.provenance, ind.isApproved) && (
                       <div lang={lang} className="mb-1"><AiSuggestedLabel lang={lang} /></div>

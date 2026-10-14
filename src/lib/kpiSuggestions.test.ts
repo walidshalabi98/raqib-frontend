@@ -445,7 +445,9 @@ describe("acceptedToastText", () => {
 
   it("says the replaced indicator was removed (SPEC-8)", () => {
     expect(acceptedToastText(en, { warnings: [], replacedIndicatorId: "ind-old" }, "O1")).toBe("Indicator added to O1. The indicator it replaces was removed.");
-    expect(acceptedToastText(ar, { warnings: [], replacedIndicatorId: "ind-old" }, "O1")).toContain("أُزيل المؤشر");
+    // The old indicator is the one removed: "the old indicator, whose place this indicator took", subject named.
+    expect(acceptedToastText(ar, { warnings: [], replacedIndicatorId: "ind-old" }, "O1"))
+      .toBe("أُضيف المؤشر إلى النتيجة O1، وحُذف المؤشر القديم الذي حلّ هذا المؤشر محلّه.");
     expect(acceptedToastText(en, { warnings: [], replacedIndicatorId: null }, "O1")).toBe("Indicator added to O1");
   });
 });

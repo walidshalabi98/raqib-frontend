@@ -160,7 +160,7 @@ export function ResultsChainPanel({ projectId, frameworkId, indicators, readOnly
               <div className="flex flex-wrap items-center gap-2">
                 <LanguageToggle value={lang} onChange={setChosenLang} />
                 {!readOnly && (
-                  <Button size="sm" variant="outline" onClick={() => setEditing({ mode: "create", parent: null })}>
+                  <Button size="sm" variant="outline" className="min-h-11 sm:min-h-9" onClick={() => setEditing({ mode: "create", parent: null })}>
                     <Plus aria-hidden="true" className="me-1.5 h-4 w-4" />
                     {t("results.add")}
                   </Button>

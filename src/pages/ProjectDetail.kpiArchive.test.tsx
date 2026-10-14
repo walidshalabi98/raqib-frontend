@@ -154,4 +154,36 @@ describe("Project page: the KPI Assistant on an archived project", () => {
     expect(await screen.findByText(ARCHIVED_BANNER)).toBeInTheDocument();
     await waitFor(() => expect(kpiWriteControls()).toEqual([]));
   });
+
+  it.each([
+    ["a result", "Suggest KPIs for O2"],
+    ["the framework", "Suggest KPIs for all results"],
+  ])("a 409 project_archived message under %s goes when the project is restored", async (_target, button) => {
+    // Active, then archived after the refusal, then active again after Restore project on the banner.
+    let status: ProjectDetailData["status"] = "active";
+    vi.mocked(api.getProject).mockImplementation(async () => project(status));
+    vi.mocked(api.requestKpiSuggestions).mockImplementation(async () => {
+      status = "archived";
+      emitProjectArchivedRefusal();
+      throw new ApiError("This project is archived. Restore it to make changes.", 409, "project_archived");
+    });
+    vi.mocked(api.restoreProject).mockImplementation(async () => {
+      status = "active";
+      return { id: "p-1", name: NAME, status: "active" } as Awaited<ReturnType<typeof api.restoreProject>>;
+    });
+    const archivedAlerts = () => screen.queryAllByRole("alert").filter((alert) => alert.textContent?.includes(ARCHIVED_MESSAGE));
+    const user = await renderFramework("org_admin");
+    await user.click(await screen.findByRole("button", { name: button }));
+    await waitFor(() => expect(archivedAlerts()).toHaveLength(1));
+
+    const banner = (await screen.findByText(ARCHIVED_BANNER)).closest("[role=status]") as HTMLElement;
+    await user.click(within(banner).getByRole("button", { name: "Restore project" }));
+    expect(api.restoreProject).toHaveBeenCalledWith("p-1");
+
+    // Writable again: the controls are back, the archived message is gone, and the request can be made again.
+    expect(await screen.findByRole("button", { name: `Accept “${SUGGESTION}”` })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(ARCHIVED_BANNER)).not.toBeInTheDocument());
+    expect(archivedAlerts()).toEqual([]);
+    expect(screen.getByRole("button", { name: button })).toBeInTheDocument();
+  });
 });

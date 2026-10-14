@@ -310,6 +310,13 @@ describe("ResultsChainPanel with the KPI Assistant", () => {
     expect(screen.getByRole("button", { name: "اقتراح مؤشرات لجميع النتائج" })).toBeInTheDocument();
   });
 
+  it("gives the header's Add result and Suggest KPIs buttons a 44 px touch target on phones", async () => {
+    renderAs("me_officer");
+    // 44 px below sm (UX_STANDARDS §7), the usual 36 px from sm up.
+    expect(await screen.findByRole("button", { name: "Add result" })).toHaveClass("min-h-11", "sm:min-h-9");
+    expect(await screen.findByRole("button", { name: "Suggest KPIs for all results" })).toHaveClass("min-h-11", "sm:min-h-9");
+  });
+
   it("shows donor viewers no KPI UI and asks the API for nothing KPI-related", async () => {
     vi.mocked(api.getKpiSuggestions).mockResolvedValue(makeKpiSuggestionList({ suggestions: [makeKpiSuggestion()] }));
     renderAs("donor_viewer", { indicators: [makeIndicator({ provenance: "ai_suggested" })] });

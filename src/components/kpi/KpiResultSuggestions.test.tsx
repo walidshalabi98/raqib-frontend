@@ -60,7 +60,10 @@ describe("KpiResultSuggestions", () => {
     expect(screen.getAllByRole("note")).toHaveLength(1);
     const cards = within(list).getAllByRole("article");
     expect(cards.map((c) => within(c).getByRole("heading").textContent)).toEqual(["First indicator", "Second indicator"]);
-    expect(within(cards[0]).getAllByText("Fits the first way.")[0].parentElement?.className).toContain("line-clamp-1");
+    // The one-line rationale is the English text's own block (lang en, ltr), so its ellipsis ends the text.
+    const line = within(cards[0]).getAllByText("Fits the first way.").find((el) => el.tagName === "P");
+    expect(line).toHaveClass("truncate");
+    expect(line).toHaveAttribute("lang", "en");
   });
 
   it("shows named progress steps while a run for the result runs", () => {

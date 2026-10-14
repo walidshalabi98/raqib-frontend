@@ -84,6 +84,13 @@ describe("SuggestKpisButton", () => {
     expect(screen.getByRole("button", { name: "اقتراح مؤشرات للنتيجة O1" })).toHaveTextContent("اقتراح مؤشرات");
   });
 
+  it("is a 44 px touch target on phones in both variants (UX_STANDARDS §7)", () => {
+    renderWith(makeKpiAssistantValue(), <><SuggestKpisButton variant="header" /><SuggestKpisButton variant="row" result={outcome} /></>);
+    // The header button keeps the usual 36 px from sm up; the row button is 32 px there.
+    expect(screen.getByRole("button", { name: "Suggest KPIs for all results" })).toHaveClass("min-h-11", "sm:min-h-9");
+    expect(screen.getByRole("button", { name: "Suggest KPIs for O1" })).toHaveClass("h-11", "sm:h-8");
+  });
+
   it("renders nothing on a read-only (archived) project", () => {
     const { container } = renderWith(makeKpiAssistantValue({ writable: false }), <><SuggestKpisButton variant="header" /><SuggestKpisButton variant="row" result={outcome} /></>);
     expect(container).toBeEmptyDOMElement();

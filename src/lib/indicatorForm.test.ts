@@ -378,7 +378,7 @@ describe("acceptEdits (design 8.1, 9.5)", () => {
       .toEqual({ resultId: "o11", level: "output" });
   });
 
-  it("never sends a field the server would drop: status, current value, actual dates, milestones (TQ-02)", () => {
+  it("never sends a field the server would refuse with 400 not_editable: status, current value, actual dates, milestones (TQ-02)", () => {
     const draft = makeIndicatorDraft();
     const values = {
       ...inputToFormValues(draft),
@@ -389,7 +389,10 @@ describe("acceptEdits (design 8.1, 9.5)", () => {
       milestones: [{ label: "Baseline survey done", date: "2026-05-01", completed: false }],
     };
     expect(acceptEdits(draft, values)).toBeUndefined();
-    expect(acceptEdits(draft, { ...values, targetValue: "60%" })).toEqual({ targetValue: "60%" });
+    const edits = acceptEdits(draft, { ...values, targetValue: "60%" });
+    expect(edits).toEqual({ targetValue: "60%" });
+    // Only ACCEPT_EDITABLE_KEYS go out: the server answers 400 not_editable to any other key (not a silent drop).
+    expect(Object.keys(edits ?? {}).every((key) => (ACCEPT_EDITABLE_KEYS as readonly string[]).includes(key))).toBe(true);
   });
 });
 

@@ -111,6 +111,22 @@ describe("KpiSuggestionCard", () => {
     expect(screen.getByText(NAME)).toHaveAttribute("lang", "en");
   });
 
+  it("cuts the English rationale to one line as an English block, so its ellipsis ends the text in an Arabic panel too", () => {
+    const rationale = "Standard food security outcome measure for voucher programmes. It matches the result statement.";
+    const lineOf = () => screen.getAllByText(rationale).find((el) => el.tagName === "P") as HTMLElement;
+    const { unmount } = renderCard({ lang: "ar" });
+    // The cut block itself carries the language and direction (an RTL block put the ellipsis before the text); a
+    // short line sits at the Arabic panel's start.
+    expect(lineOf()).toHaveClass("truncate", "text-end");
+    expect(lineOf()).toHaveAttribute("lang", "en");
+    expect(lineOf()).toHaveAttribute("dir", "ltr");
+    expect(lineOf().children).toHaveLength(0);
+    unmount();
+    renderCard({ lang: "en" });
+    expect(lineOf()).toHaveClass("truncate", "text-start");
+    expect(lineOf()).toHaveAttribute("dir", "ltr");
+  });
+
   it("shows level, standard, quality and method badges, frequency and disaggregation", () => {
     renderCard();
     expect(screen.getByText("Outcome")).toBeInTheDocument();

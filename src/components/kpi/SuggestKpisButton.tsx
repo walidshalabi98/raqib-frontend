@@ -50,6 +50,8 @@ export function SuggestKpisButton(props: SuggestKpisButtonProps) {
       onClick={onClick}
       className={cn(
         props.variant === "row" && "h-11 px-2.5 sm:h-8",
+        // 44 px touch target on phones (UX_STANDARDS §7), the usual 36 px from sm up.
+        props.variant === "header" && "min-h-11 sm:min-h-9",
         unavailable && "cursor-not-allowed opacity-60",
       )}
     >

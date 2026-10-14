@@ -18,7 +18,7 @@ import {
 } from "@/hooks/useKpiSuggestions";
 import { usePermissions } from "@/hooks/usePermissions";
 import { queryKeys } from "@/lib/queryKeys";
-import { httpStatusOf } from "@/lib/apiError";
+import { httpStatusOf, PROJECT_ARCHIVED_CODE } from "@/lib/apiError";
 import type { KpiShownErrorCode } from "@/lib/constants";
 import {
   bodyForRun,
@@ -208,6 +208,20 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, readOnly = 
   useEffect(() => {
     update((prev) => (Object.keys(prev).length === 0 ? prev : {}));
   }, [frameworkId, update]);
+
+  // A project restored after a refusal (409 project_archived) is writable again: the "this project is archived" errors
+  // under its results and the framework go, so none stays above working controls (the provider stays mounted across
+  // archive and restore). Other errors stay.
+  useEffect(() => {
+    if (!writable) return;
+    update((prev) => {
+      const stale = Object.keys(prev).filter((key) => prev[key].error === PROJECT_ARCHIVED_CODE);
+      if (stale.length === 0) return prev;
+      const next: Record<string, Tracked> = { ...prev };
+      for (const key of stale) delete next[key];
+      return next;
+    });
+  }, [writable, update]);
 
   const markNotConfigured = useCallback(() => setNotConfiguredAt(Date.now()), []);
 

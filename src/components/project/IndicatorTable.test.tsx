@@ -212,6 +212,52 @@ describe("IndicatorTable", () => {
     expect(edits.length).toBeGreaterThan(0);
     for (const edit of edits) expect(edit).toHaveAttribute("lang", "ar");
   });
+
+  it("names Approve and Edit after the indicator as an Arabic row shows it, marking an English name as English", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.getUser).mockReturnValue(makeAuthUser({ role: "org_admin", languagePref: "ar" }));
+    vi.mocked(api.getFramework).mockResolvedValue(framework("approved", [
+      makeIndicator({ id: "i-1", indicatorText: "% of households with acceptable FCS", indicatorTextAr: "نسبة الأسر ذات درجة استهلاك غذائي مقبولة", isApproved: false }),
+      makeIndicator({ id: "i-2", indicatorText: "Number of people reached", indicatorTextAr: null, isApproved: false }),
+    ]));
+    renderWithClient(<AuthProvider><IndicatorTable projectId="p-1" /></AuthProvider>);
+
+    // An Arabic name: the label is all Arabic, as the row shows it.
+    const approve = await screen.findByRole("button", { name: "اعتماد نسبة الأسر ذات درجة استهلاك غذائي مقبولة" });
+    expect(approve).toHaveAttribute("aria-label", "اعتماد نسبة الأسر ذات درجة استهلاك غذائي مقبولة");
+    expect(screen.getByRole("button", { name: "تعديل المؤشر: نسبة الأسر ذات درجة استهلاك غذائي مقبولة" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^اعتماد %/ })).not.toBeInTheDocument();
+
+    // No Arabic name: the row shows the English one, and the label marks it as English (a hidden label element).
+    for (const name of ["اعتماد Number of people reached", "تعديل المؤشر: Number of people reached"]) {
+      const button = screen.getByRole("button", { name });
+      expect(button).not.toHaveAttribute("aria-label");
+      const label = document.getElementById(button.getAttribute("aria-labelledby") ?? "") as HTMLElement;
+      expect(label).not.toBeVisible();
+      expect(label.querySelector("bdi")).toHaveAttribute("lang", "en");
+      expect(label.querySelector("bdi")).toHaveTextContent("Number of people reached");
+    }
+
+    // The Timeline view shows the same names as the table, so its Edit labels match it too.
+    await user.click(screen.getByRole("button", { name: "Timeline" }));
+    expect(screen.getByText("نسبة الأسر ذات درجة استهلاك غذائي مقبولة")).toHaveAttribute("lang", "ar");
+    expect(screen.getByRole("button", { name: "تعديل المؤشر: نسبة الأسر ذات درجة استهلاك غذائي مقبولة" })).toBeInTheDocument();
+  });
+
+  it("gives Edit and Approve 44 px touch targets on phones, 8 px apart, and the compact 28 px from sm up", async () => {
+    vi.mocked(api.getFramework).mockResolvedValue(framework("approved", [
+      makeIndicator({ id: "i-1", indicatorText: "Not yet approved", provenance: "ai_suggested", isApproved: false }),
+    ]));
+    renderAs("org_admin");
+    const approve = await screen.findByRole("button", { name: "Approve Not yet approved" });
+    const edit = screen.getByRole("button", { name: "Edit indicator: Not yet approved" });
+    for (const button of [approve, edit]) {
+      expect(button).toHaveClass("min-h-11", "sm:h-7", "sm:min-h-0");
+      expect(button).not.toHaveClass("h-7");
+    }
+    expect(approve.parentElement).toHaveClass("gap-2", "sm:gap-1");
+    expect(approve.parentElement).toContainElement(edit);
+  });
 });
 
 describe("IndicatorTable read-only (donor viewers, archived projects)", () => {

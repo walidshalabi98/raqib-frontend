@@ -282,6 +282,10 @@ export interface ProjectRemovedCounts {
   reports: number;
   documents: number;
   notifications: number;
+  /** KPI Assistant (Phase 4) suggestions in every status (SuggestionStatus). */
+  kpiSuggestions: number;
+  /** The KPI Assistant runs that made them. */
+  kpiSuggestionRuns: number;
   /** Document files removed from storage after the database transaction. */
   storageFilesRemoved: number;
   /** Document files storage could not remove (logged by document id on the server; the request still succeeds). */
