@@ -163,7 +163,7 @@ describe("KpiSuggestionCard", () => {
     expect(screen.getByText("حدّ معياري (Sphere minimum 15 l/p/d)")).toBeInTheDocument();
     expect(screen.getByText("سبب اقتراح مؤشر مخصّص")).toBeInTheDocument();
     expect(screen.getByText("No library indicator covers water trucking.")).toHaveAttribute("lang", "en");
-    expect(screen.getByText("كتبها الذكاء الاصطناعي بالإنجليزية.")).toBeInTheDocument();
+    expect(screen.getByText("كتب الذكاء الاصطناعي هذه التفاصيل بالإنجليزية.")).toBeInTheDocument();
     // SPEC-4: a custom suggestion's badge says Custom; a code the model wrote is not shown as a standard reference.
     expect(screen.getByText("مخصّص")).toBeInTheDocument();
     expect(screen.queryAllByText("Sphere minimum 15 l/p/d")).toHaveLength(0);

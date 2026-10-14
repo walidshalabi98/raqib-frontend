@@ -98,7 +98,7 @@ describe("translations", () => {
 
   it("uses Arabic plural forms for the KPI announcement", () => {
     const t = i18n.getFixedT("ar");
-    expect(t("kpi.ready", { count: 0, code: "O1" })).toBe("لا توجد اقتراحات جاهزة للنتيجة O1");
+    expect(t("kpi.ready", { count: 0, code: "O1" })).toBe("لا توجد اقتراحات جديدة للنتيجة O1");
     expect(t("kpi.ready", { count: 1, code: "O1" })).toBe("اقتراح واحد جاهز للنتيجة O1");
     expect(t("kpi.ready", { count: 2, code: "O1" })).toBe("اقتراحان جاهزان للنتيجة O1");
     expect(t("kpi.ready", { count: 3, code: "O1" })).toBe("3 اقتراحات جاهزة للنتيجة O1");
@@ -122,6 +122,22 @@ describe("translations", () => {
         expect(t(`kpi.actions.${action}Named`, { name: "X" }), `${lng} ${action}`).toContain(t(`kpi.actions.${action}`));
       }
     }
+  });
+
+  it("writes the M&E glossary the same way everywhere in Arabic: القيمة المستهدفة, المحصّلة, المُخرَج", () => {
+    const entries = (obj: Record<string, unknown>, prefix = ""): Array<[string, string]> =>
+      Object.entries(obj).flatMap(([k, v]) =>
+        v && typeof v === "object" ? entries(v as Record<string, unknown>, `${prefix}${k}.`) : [[`${prefix}${k}`, String(v)] as [string, string]],
+      );
+    for (const [key, text] of entries(ar)) {
+      // A target is القيمة المستهدفة (القيم المستهدفة), never the bare noun المستهدف or المستهدفات.
+      expect(text, key).not.toMatch(/(^|[\s«(])(ال|لل|بال|و|وال)?مستهدف(ات)?(?=[\s.,،؛:)»]|$)/);
+      // Outcomes and outputs keep the marks the level labels use.
+      expect(text, key).not.toMatch(/المخرج|مخرجات|المحصلة|محصلات/);
+    }
+    expect(ar.kpi.card.target).toBe("القيمة المستهدفة المقترحة");
+    expect(ar.kpi.card.meansOfVerification).toBe(ar.indicatorForm.fields.meansOfVerification);
+    expect(ar.kpi.card.disaggregation).toBe(ar.indicatorForm.sections.disaggregation);
   });
 
   it("explains a KPI call refused on an archived project with the app's archived message, in both languages", () => {

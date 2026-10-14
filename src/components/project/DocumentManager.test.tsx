@@ -415,7 +415,7 @@ describe("DocumentManager", () => {
     await user.click(screen.getByRole("button", { name: "عرض التحليل: proposal.pdf" }));
     const dialog = screen.getByRole("dialog", { name: "تحليل الوثيقة بالذكاء الاصطناعي" });
     expect(dialog).toHaveAttribute("dir", "rtl");
-    expect(within(dialog).getByRole("heading", { name: "المستهدفات المذكورة" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "القيم المستهدفة المذكورة" })).toBeInTheDocument();
     expect(within(dialog).getAllByText("ورد في نص الوثيقة")).toHaveLength(2);
     expect(within(dialog).getByRole("button", { name: "إغلاق" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
