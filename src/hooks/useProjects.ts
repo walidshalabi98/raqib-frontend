@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
-import type { Project, ProjectDetail } from "@/types/api";
+import type { Framework, KpiSuggestionList, KpiSuggestionRunResponse, Project, ProjectDetail } from "@/types/api";
 
 /** The organisation's active projects, or its archived ones (`archived`). Both views share the `projects` prefix. */
 export function useProjectList(archived = false) {
@@ -46,6 +46,35 @@ export function projectScopedKeys(projectId: string): ReadonlyArray<readonly unk
     ["qualitative", projectId],
     ["assessments", projectId],
     ["risk-analysis", projectId],
+    // KPI Assistant (Phase 4): the project's suggestion list, with its active runs and latest framework run.
+    queryKeys.kpiSuggestions(projectId),
+  ];
+}
+
+/**
+ * The cached responses of a project that are keyed by one of its frameworks or KPI runs instead of the project id:
+ * each framework's results chain and indicator quality check, and every KPI run of the project (polled runs, and the
+ * runs its suggestion list names). Read from the cache, so call it before the project's own entries are removed.
+ */
+export function projectRelatedKeys(queryClient: QueryClient, projectId: string): ReadonlyArray<readonly unknown[]> {
+  const frameworkIds = new Set<string>();
+  const runIds = new Set<string>();
+  for (const framework of queryClient.getQueryData<ProjectDetail>(queryKeys.project(projectId))?.frameworks ?? []) {
+    if (framework?.id) frameworkIds.add(framework.id);
+  }
+  const current = queryClient.getQueryData<Framework | null>(queryKeys.framework(projectId));
+  if (current?.id) frameworkIds.add(current.id);
+  const list = queryClient.getQueryData<KpiSuggestionList>(queryKeys.kpiSuggestions(projectId));
+  if (list?.frameworkId) frameworkIds.add(list.frameworkId);
+  for (const run of [...(list?.activeRuns ?? []), ...(list?.latestFrameworkRun ? [list.latestFrameworkRun] : [])]) runIds.add(run.id);
+  for (const suggestion of list?.suggestions ?? []) if (suggestion.runId) runIds.add(suggestion.runId);
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: queryKeys.kpiSuggestionRuns })) {
+    const run = (query.state.data as KpiSuggestionRunResponse | undefined)?.run;
+    if (run?.projectId === projectId) runIds.add(run.id);
+  }
+  return [
+    ...[...frameworkIds].flatMap((id) => [queryKeys.frameworkResults(id), queryKeys.indicatorQuality(id)]),
+    ...[...runIds].map((id) => queryKeys.kpiSuggestionRun(id)),
   ];
 }
 
@@ -120,8 +149,9 @@ export interface ProjectDeletion {
 
 /**
  * Deletes a project and everything in it for good (org admins and platform admins, after typing its name).
- * On success, before the caller leaves the project page: the project's cached responses are dropped, it is
- * taken out of the cached lists (the Projects page the caller goes to shows the cached list first, and must not
+ * On success, before the caller leaves the project page: the project's cached responses are dropped (those keyed by
+ * its frameworks and KPI runs too: results chain, quality check, KPI suggestions and runs), it is taken out of the
+ * cached lists (the Projects page the caller goes to shows the cached list first, and must not
  * offer a link to a project that is gone), and the lists, the organisation dashboard and the notifications (the
  * server deleted the project's notifications too) are fetched again.
  */
@@ -130,7 +160,9 @@ export function useDeleteProject() {
   return useMutation({
     mutationFn: ({ projectId, confirmName }: ProjectDeletion) => api.deleteProject(projectId, confirmName),
     onSuccess: (_data, { projectId }) => {
-      for (const queryKey of projectScopedKeys(projectId)) {
+      // The related keys are read from the project's cached entries, so before those go.
+      const related = projectRelatedKeys(queryClient, projectId);
+      for (const queryKey of [...projectScopedKeys(projectId), ...related]) {
         void queryClient.cancelQueries({ queryKey, exact: true });
         queryClient.removeQueries({ queryKey, exact: true });
       }

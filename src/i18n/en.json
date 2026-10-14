@@ -986,6 +986,7 @@
     "readyFramework_other": "{{count}} suggestions ready across all results",
     "empty": "No new suggestions for {{code}}. Nothing else in the library fits, or your organisation rejected the matches.",
     "listFailed": "Could not load the KPI suggestions.",
+    "readOnlyNote": "This project is archived: you can read these suggestions, but not accept or reject them. An organisation admin can restore the project.",
     "notConfigured": {
       "title": "AI suggestions are not set up yet",
       "body": "An administrator needs to add the Anthropic API key on the server. You can still add indicators yourself or from the library."
@@ -1104,7 +1105,8 @@
     "indicators": {
       "show": "Show indicators",
       "hide": "Hide indicators",
-      "weakPrompt": "Raqib found quality problems in this indicator. It can suggest alternatives."
+      "weakPrompt": "Raqib found quality problems in this indicator. It can suggest alternatives.",
+      "weakPromptReadOnly": "Raqib found quality problems in this indicator."
     },
     "toast": {
       "accepted": "Indicator added to {{code}}",
@@ -1140,7 +1142,7 @@
       "nothing_to_suggest_donor_cap": "Every result already has as many indicators as the donor allows, so there is nothing to suggest.",
       "too_many_results": "This framework has too many results to suggest for all at once. Suggest KPIs for one result at a time.",
       "budget_reached": "Your organisation has reached today's AI budget. Try again tomorrow or ask your administrator.",
-      "project_archived": "This project is archived.",
+      "project_archived": "This project is archived, so it is read-only. An organisation admin can restore it to make changes.",
       "duplicate": "This result already has this indicator. The list was refreshed.",
       "source_has_data": "The indicator this alternative would replace already has data or linked services, so it cannot be removed. Accept the alternative without replacing it, then decide what to do with the old indicator.",
       "not_editable": "Status, current value, actual dates and milestones cannot be set while accepting a suggestion. Accept it first, then edit the indicator.",

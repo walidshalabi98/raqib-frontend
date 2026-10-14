@@ -35,7 +35,8 @@ export interface ResultIndicatorListProps {
  * (`needsAlternatives`) gets the weak-indicator prompt with the penalised notes and "Show alternatives"
  * (spec §A2 trigger 3: alternatives for that indicator), which needs the indicator to measure a result (D21) and a
  * role with the assistant; it stays visible but aria-disabled while the AI is not configured or a run for the result
- * is active. Must be rendered inside KpiAssistantProvider.
+ * is active, and is not shown on a read-only (archived) project, where the prompt and its notes stay to read. Must be
+ * rendered inside KpiAssistantProvider.
  */
 export function ResultIndicatorList({ id, labelledBy, result, indicators, quality, lang }: ResultIndicatorListProps) {
   const { t } = useTranslation(undefined, { lng: lang });
@@ -79,11 +80,11 @@ export function ResultIndicatorList({ id, labelledBy, result, indicators, qualit
               <div className="min-w-0 space-y-1.5 rounded-md border border-warning/40 p-2">
                 <p id={promptId} className="flex items-start gap-1.5 text-xs font-medium">
                   <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-                  <span className="min-w-0 break-words">{t("kpi.indicators.weakPrompt")}</span>
+                  <span className="min-w-0 break-words">{t(kpi.writable ? "kpi.indicators.weakPrompt" : "kpi.indicators.weakPromptReadOnly")}</span>
                 </p>
                 <KpiWarningList warnings={penalised} lang={lang} />
                 {/* Alternatives are suggested for a result (D21): an unlinked indicator gets no button. */}
-                {indicator.resultId && (
+                {kpi.writable && indicator.resultId && (
                   <Button
                     type="button"
                     size="sm"

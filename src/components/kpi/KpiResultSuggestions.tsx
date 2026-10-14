@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Eye } from "lucide-react";
 import { dirFor } from "@/i18n";
 import { labelWithName } from "@/components/kpi/labelWithName";
 import type { Framework, KpiRun, KpiSuggestion, ResultNode } from "@/types/api";
@@ -55,7 +55,9 @@ type T = ReturnType<typeof useTranslation>["t"];
  * card (else the previous, else the Suggest KPIs button) after an accept or dismiss; it never moves when a run
  * finishes. A visually hidden status announces "N suggestions ready for O1" and "Indicator added to O1". The empty
  * state follows what the last run returned (suggestionCount 0: "No new suggestions", or "No alternatives found" for an
- * alternatives run, shown next to other cards too) until the user decides a card (review UX-04).
+ * alternatives run, shown next to other cards too) until the user decides a card (review UX-04). On a read-only
+ * (archived) project the cards, notes and progress stay to read, with a note that says why they cannot be decided;
+ * Suggest again, Retry and the alternatives buttons are not shown.
  */
 export function KpiResultSuggestions({ result, nodes, focusFallback }: KpiResultSuggestionsProps) {
   const kpi = useKpiAssistant();
@@ -170,6 +172,7 @@ export function KpiResultSuggestions({ result, nodes, focusFallback }: KpiResult
         name={nameIn(suggestion, lang)}
         label={labelWithName(t, "kpi.rejected.stub", nameIn(suggestion, lang))}
         t={t}
+        canRequest={kpi.writable}
         alternativesUnavailable={alternativesUnavailable}
         describedBy={kpi.aiConfigured === false ? kpiNoticeId(kpi.projectId) : undefined}
         onAlternatives={() => kpi.request({ scope: "alternatives", suggestionId: suggestion.id })}
@@ -222,21 +225,29 @@ export function KpiResultSuggestions({ result, nodes, focusFallback }: KpiResult
       {emptyRun && emptyRun.scope !== "alternatives" && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
           <span className="min-w-0 flex-1">{t("kpi.empty", { code: result.code })}</span>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="min-h-11 sm:min-h-9"
-            onClick={() => kpi.request({ scope: "result", resultId: result.id })}
-          >
-            {t("kpi.suggestAgain")}
-          </Button>
+          {kpi.writable && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="min-h-11 sm:min-h-9"
+              onClick={() => kpi.request({ scope: "result", resultId: result.id })}
+            >
+              {t("kpi.suggestAgain")}
+            </Button>
+          )}
         </div>
       )}
 
       {group && hasCards && (
         <div className="space-y-2">
           <AiSuggestedLabel lang={lang} id={aiLabelId} />
+          {!kpi.writable && (
+            <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+              <Eye aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0">{t("kpi.readOnlyNote")}</span>
+            </p>
+          )}
           <ul aria-label={t("kpi.listLabel", { code: result.code })} aria-describedby={aiLabelId} className="space-y-2">
             {group.items.map((item) => (
               <li key={item.suggestion.id} className="min-w-0">
@@ -285,6 +296,7 @@ function RejectedStub({
   name,
   label,
   t,
+  canRequest,
   alternativesUnavailable,
   describedBy,
   onAlternatives,
@@ -295,6 +307,8 @@ function RejectedStub({
   /** "Rejected: <name>" with the name isolated (labelWithName). */
   label: ReactNode;
   t: T;
+  /** Alternatives can be requested (false on a read-only, archived project: the offer and its button are not shown). */
+  canRequest: boolean;
   alternativesUnavailable: boolean;
   /** The not-configured notice, when the AI is not set up. */
   describedBy?: string;
@@ -307,23 +321,25 @@ function RejectedStub({
       <h4 id={headingId} tabIndex={-1} className="font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         {label}
       </h4>
-      <p className="mt-1 text-muted-foreground">{t("kpi.rejected.offerAlternatives")}</p>
+      {canRequest && <p className="mt-1 text-muted-foreground">{t("kpi.rejected.offerAlternatives")}</p>}
       <div className="mt-2 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="min-h-11 whitespace-normal sm:min-h-9"
-          aria-label={t("kpi.actions.alternativesNamed", { name })}
-          aria-disabled={alternativesUnavailable ? "true" : undefined}
-          aria-describedby={describedBy}
-          onClick={(event) => {
-            if (alternativesUnavailable) event.preventDefault();
-            else onAlternatives();
-          }}
-        >
-          {t("kpi.actions.alternatives")}
-        </Button>
+        {canRequest && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-11 whitespace-normal sm:min-h-9"
+            aria-label={t("kpi.actions.alternativesNamed", { name })}
+            aria-disabled={alternativesUnavailable ? "true" : undefined}
+            aria-describedby={describedBy}
+            onClick={(event) => {
+              if (alternativesUnavailable) event.preventDefault();
+              else onAlternatives();
+            }}
+          >
+            {t("kpi.actions.alternatives")}
+          </Button>
+        )}
         <Button type="button" size="sm" variant="ghost" className="min-h-11 sm:min-h-9" onClick={onDismiss}>
           {t("kpi.actions.dismiss")}
         </Button>

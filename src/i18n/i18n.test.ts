@@ -124,6 +124,11 @@ describe("translations", () => {
     }
   });
 
+  it("explains a KPI call refused on an archived project with the app's archived message, in both languages", () => {
+    expect(en.kpi.errors.project_archived).toBe(en.errors.projectArchived);
+    expect(ar.kpi.errors.project_archived).toBe(ar.errors.projectArchived);
+  });
+
   it("maps preferences to a language and direction", () => {
     expect(toAppLanguage("ar")).toBe("ar");
     expect(toAppLanguage("fr")).toBe("en");

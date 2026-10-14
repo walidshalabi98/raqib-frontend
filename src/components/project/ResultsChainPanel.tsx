@@ -78,7 +78,9 @@ export interface ResultsChainPanelProps {
  * impact, outcome and output row its own "Suggest KPIs", and the suggestions appear under their result
  * (KpiResultSuggestions) before its child results. After a goal, outcome or output is created, a session-local
  * prompt offers suggestions for it ("Not now" hides it; no automatic model call, design D7). Donor viewers get no
- * KPI UI. The indicator count is a disclosure of the result's indicators with their source, AI label and quality.
+ * KPI UI. On an archived project (`readOnly`) the suggestions stay readable and every KPI write control is off
+ * (KpiAssistantProvider `readOnly`). The indicator count is a disclosure of the result's indicators with their source,
+ * AI label and quality.
  */
 export function ResultsChainPanel({ projectId, frameworkId, indicators, readOnly = false }: ResultsChainPanelProps) {
   const userLang = useUserLanguage();
@@ -146,7 +148,7 @@ export function ResultsChainPanel({ projectId, frameworkId, indicators, readOnly
     <section aria-labelledby={headingId} dir={dir} lang={lang} className="card-surface space-y-3 p-4">
       <DirectionProvider dir={dir}>
         <TooltipProvider delayDuration={200}>
-          <KpiAssistantProvider projectId={projectId} frameworkId={frameworkId} lang={lang}>
+          <KpiAssistantProvider projectId={projectId} frameworkId={frameworkId} lang={lang} readOnly={readOnly}>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 space-y-0.5">
                 <h3 id={headingId} tabIndex={-1} className="flex items-center gap-2 text-sm font-semibold focus:outline-none">
@@ -415,9 +417,9 @@ function ResultTreeItemView({ item, ...props }: TreeProps & { item: ResultTreeIt
 
 /**
  * The on-demand prompt after a goal, outcome or output was created in this session (spec §A2 trigger 2 as design D7:
- * no automatic model call). Hidden for roles without the assistant, while the AI is not configured, and once the
- * result has a run or suggestions. Either button removes the prompt, so focus moves to the row's Suggest KPIs button
- * (or the edit button) instead of being lost.
+ * no automatic model call). Hidden for roles without the assistant, on a read-only (archived) project, while the AI is
+ * not configured, and once the result has a run or suggestions. Either button removes the prompt, so focus moves to
+ * the row's Suggest KPIs button (or the edit button) instead of being lost.
  */
 function NewResultPrompt({ node, t, editButtonId, onDismiss }: {
   node: ResultNode;
@@ -426,7 +428,7 @@ function NewResultPrompt({ node, t, editButtonId, onDismiss }: {
   onDismiss: () => void;
 }) {
   const kpi = useKpiAssistant();
-  if (!kpi.enabled || kpi.aiConfigured === false || !isSuggestableLevel(node.level)) return null;
+  if (!kpi.writable || kpi.aiConfigured === false || !isSuggestableLevel(node.level)) return null;
   if (kpi.runFor({ resultId: node.id }) || kpi.pendingFor(node.id).length > 0) return null;
 
   const close = (suggest: boolean) => {

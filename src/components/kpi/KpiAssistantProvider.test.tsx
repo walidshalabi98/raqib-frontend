@@ -41,10 +41,10 @@ vi.mock("@/components/project/IndicatorDialog", () => ({ IndicatorDialog: ({ tri
 const nodes = sampleResultNodes();
 const o1Suggestion = makeKpiSuggestion({ id: "s-1", runId: "run-1", suggestion: { name: "Households with acceptable FCS" } });
 
-function Chain({ lang = "en" }: { lang?: AppLanguage }) {
+function Chain({ lang = "en", readOnly = false }: { lang?: AppLanguage; readOnly?: boolean }) {
   return (
     <AuthProvider>
-      <KpiAssistantProvider projectId="p-1" frameworkId="fw-1" lang={lang}>
+      <KpiAssistantProvider projectId="p-1" frameworkId="fw-1" lang={lang} readOnly={readOnly}>
         <SuggestKpisButton variant="header" />
         <KpiFrameworkPanel />
         <ul>
@@ -61,9 +61,9 @@ function Chain({ lang = "en" }: { lang?: AppLanguage }) {
   );
 }
 
-function renderChain(lang: AppLanguage = "en") {
+function renderChain(lang: AppLanguage = "en", readOnly = false) {
   const client = createTestQueryClient();
-  return { client, ...renderWithClient(<Chain lang={lang} />, client) };
+  return { client, ...renderWithClient(<Chain lang={lang} readOnly={readOnly} />, client) };
 }
 
 const row = (code: string) => screen.getByTestId(`row-${code}`);
@@ -433,5 +433,59 @@ describe("KpiAssistantProvider (useKpiSuggestions through the components)", () =
     const group = await within(row("O1")).findByRole("list", { name: nameWithIsolatedPart("Alternatives to “Households with acceptable FCS”") });
     expect(within(group).getByRole("heading", { name: "Better worded indicator" })).toBeInTheDocument();
     expect(within(row("O1")).getByRole("heading", { name: "Rejected: Households with acceptable FCS" })).toBeInTheDocument();
+  });
+});
+
+describe("KpiAssistantProvider on an archived project", () => {
+  const ARCHIVED = "This project is archived, so it is read-only. An organisation admin can restore it to make changes.";
+  /** Every KPI write control (Suggest KPIs, Accept, Edit & accept, Reject, alternatives, Suggest again, Retry). */
+  const WRITE_CONTROL = /^(Suggest KPIs|Suggest again|Accept|Edit & accept|Reject|Show alternatives|Try again)/;
+
+  it("read-only: shows the suggestions and a running run to read, without any write control", async () => {
+    const active = runningRun({ id: "run-2", scope: "result", resultId: "o11" });
+    vi.mocked(api.getKpiSuggestions).mockResolvedValue(makeKpiSuggestionList({ suggestions: [o1Suggestion], activeRuns: [active] }));
+    vi.mocked(api.getKpiSuggestionRun).mockResolvedValue({ run: active, suggestions: [] });
+    renderChain("en", true);
+
+    expect(await within(row("O1")).findByRole("heading", { name: "Households with acceptable FCS" })).toBeInTheDocument();
+    expect(within(row("O1")).getByText("AI suggested — review before approval")).toBeInTheDocument();
+    expect(within(row("O1")).getByText(/This project is archived: you can read these suggestions, but not accept or reject them\./)).toBeInTheDocument();
+    // The run another user started before the archive is followed (reading), its steps shown.
+    expect(await within(row("O1.1")).findByRole("listitem", { current: "step" })).toBeInTheDocument();
+    expect(screen.queryAllByRole("button").filter((b) => WRITE_CONTROL.test(b.getAttribute("aria-label") ?? b.textContent ?? ""))).toEqual([]);
+    expect(api.requestKpiSuggestions).not.toHaveBeenCalled();
+  });
+
+  it("a 409 project_archived from a KPI request shows the archived message, without Retry", async () => {
+    vi.mocked(api.requestKpiSuggestions).mockRejectedValue(new ApiError("This project is archived", 409, "project_archived"));
+    const user = userEvent.setup({ delay: null });
+    renderChain();
+    await user.click(await screen.findByRole("button", { name: "Suggest KPIs for O1" }));
+    expect(await within(row("O1")).findByRole("alert")).toHaveTextContent(ARCHIVED);
+    expect(within(row("O1")).queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+  });
+
+  it("in Arabic, the archived message is the app's own", async () => {
+    vi.mocked(api.getUser).mockReturnValue(makeAuthUser({ role: "me_officer", languagePref: "ar" }));
+    vi.mocked(api.requestKpiSuggestions).mockRejectedValue(new ApiError("This project is archived", 409, "project_archived"));
+    const user = userEvent.setup({ delay: null });
+    renderChain("ar");
+    await user.click(await screen.findByRole("button", { name: "اقتراح مؤشرات للنتيجة O1" }));
+    expect(await within(row("O1")).findByRole("alert")).toHaveTextContent("هذا المشروع مؤرشف، لذا فهو متاح للاطلاع فقط. يمكن لمسؤول المؤسسة استعادته لإجراء تغييرات.");
+  });
+
+  it("when the page turns read-only, Retry, Suggest KPIs and the card actions go; the cards and the error stay", async () => {
+    vi.mocked(api.getKpiSuggestions).mockResolvedValue(makeKpiSuggestionList({ suggestions: [o1Suggestion] }));
+    vi.mocked(api.requestKpiSuggestions).mockRejectedValue(new ApiError("Server error", 500));
+    const user = userEvent.setup({ delay: null });
+    const { rerender } = renderChain();
+    await user.click(await screen.findByRole("button", { name: "Suggest KPIs for O2" }));
+    expect(await within(row("O2")).findByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(within(row("O1")).getByRole("button", { name: "Accept “Households with acceptable FCS”" })).toBeInTheDocument();
+
+    rerender(<Chain readOnly />);
+    expect(within(row("O2")).getByRole("alert")).toBeInTheDocument();
+    expect(within(row("O1")).getByRole("heading", { name: "Households with acceptable FCS" })).toBeInTheDocument();
+    expect(screen.queryAllByRole("button").filter((b) => WRITE_CONTROL.test(b.getAttribute("aria-label") ?? b.textContent ?? ""))).toEqual([]);
   });
 });

@@ -47,6 +47,12 @@ export interface KpiAssistantProviderProps {
   frameworkId: string;
   /** Language of the panel the assistant renders in (error messages are in it). */
   lang: AppLanguage;
+  /**
+   * The project cannot be changed now (archived; the results chain's `readOnly`, derived from useProjectAccess on the
+   * project page): suggestions, runs and their notes stay readable, every write control is off (`writable` false) and
+   * request() does nothing. The server refuses KPI writes to an archived project anyway (409 project_archived).
+   */
+  readOnly?: boolean;
   children: ReactNode;
 }
 
@@ -164,11 +170,13 @@ function KpiRunWatcher({
  * Holds the KPI Assistant state for one framework's results chain (knowledge/kpi-assistant-spec.md §A6–A7; design
  * sections 7.4, 9.1 and 9.3): the AI status, the pending suggestions, run tracking (the timed view during the
  * synchronous wait, then polling with back-off; active runs resume after a reload) and request(). Renders nothing
- * itself. Disabled for roles without the assistant (donor viewers: spec §A1).
+ * itself. Disabled for roles without the assistant (donor viewers: spec §A1); read-only on an archived project
+ * (`readOnly`: no request, no Retry, and the components hide their write controls through `writable`).
  */
-export function KpiAssistantProvider({ projectId, frameworkId, lang, children }: KpiAssistantProviderProps) {
+export function KpiAssistantProvider({ projectId, frameworkId, lang, readOnly = false, children }: KpiAssistantProviderProps) {
   // The "ai.run" capability (src/lib/permissions.ts): staff roles only, never donor viewers.
   const enabled = usePermissions().can("ai.run");
+  const writable = enabled && !readOnly;
   const { t } = useTranslation(undefined, { lng: lang });
   const queryClient = useQueryClient();
   const status = useKpiAssistantStatus();
@@ -250,7 +258,7 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
   }, [queryClient, projectId, markNotConfigured]);
 
   const request = useCallback((body: RequestKpiSuggestionsBody) => {
-    if (!enabled) return;
+    if (!writable) return;
     const key = keyForBody(body);
     if (isActive(trackedRef.current[key])) return;
     update((prev) => ({
@@ -283,7 +291,7 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
         update((prev) => (prev[key] ? { ...prev, [key]: { ...prev[key], error: code, errorContext } } : prev));
       },
     );
-  }, [enabled, keyForBody, mutateAsync, placeRun, update, markNotConfigured]);
+  }, [writable, keyForBody, mutateAsync, placeRun, update, markNotConfigured]);
 
   const onRunData = useCallback((runId: string, data: KpiSuggestionRunResponse) => {
     for (const entry of Object.values(trackedRef.current)) {
@@ -373,11 +381,12 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
       return {
         code,
         message: kpiErrorText(t, code, entry.error ? entry.errorContext : undefined),
-        ...(body && isRetryableError(code, entry.error ? entry.errorContext : undefined) && { retry: () => request(body) }),
+        ...(writable && body && isRetryableError(code, entry.error ? entry.errorContext : undefined) && { retry: () => request(body) }),
       };
     };
     return {
       enabled,
+      writable,
       aiConfigured,
       lang,
       projectId,
@@ -389,7 +398,7 @@ export function KpiAssistantProvider({ projectId, frameworkId, lang, children }:
       errorFor: (target) => errorOf(tracked[keyOf(target)]),
       listError: listFailed ? { message: t("kpi.listFailed"), retry: () => void refetchList() } : null,
     };
-  }, [enabled, aiConfigured, lang, projectId, frameworkId, pendingByResult, tracked, now, list.data, listFailed, refetchList, request, t, queryClient]);
+  }, [enabled, writable, aiConfigured, lang, projectId, frameworkId, pendingByResult, tracked, now, list.data, listFailed, refetchList, request, t, queryClient]);
 
   // Each running run once, with the earliest start of the entries that follow it.
   const watched = new Map<string, number>();

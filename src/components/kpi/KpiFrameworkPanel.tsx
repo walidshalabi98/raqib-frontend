@@ -53,7 +53,8 @@ export function KpiFrameworkPanel() {
   const error = kpi.errorFor({ scope: "framework" });
   const latest = kpi.latestFrameworkRun;
   const gaps = latest && latest.status === "completed" ? latest.frameworkWarnings : [];
-  const notConfigured = kpi.aiConfigured === false;
+  // The notice explains the disabled Suggest KPIs buttons: none are shown on a read-only (archived) project.
+  const notConfigured = kpi.writable && kpi.aiConfigured === false;
   const running = view?.status === "running";
   const listError = kpi.listError ?? null;
   const visible = notConfigured || running || Boolean(error) || Boolean(listError) || gaps.length > 0;

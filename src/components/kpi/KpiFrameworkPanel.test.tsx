@@ -128,4 +128,17 @@ describe("KpiFrameworkPanel", () => {
     expect(region).toHaveTextContent("اقتراحان جاهزان لجميع النتائج");
     expect(region).toHaveAttribute("lang", "ar");
   });
+
+  it("on a read-only (archived) project: no not-configured notice (no Suggest buttons to explain), progress and gaps stay", () => {
+    const latest = makeKpiRun({ scope: "framework", resultId: null, frameworkWarnings: [makeKpiWarning("model_note", { params: { message: "No outcome covers protection." } })] });
+    renderPanel(makeKpiAssistantValue({
+      writable: false,
+      aiConfigured: false,
+      latestFrameworkRun: latest,
+      runFor: (t) => ("scope" in t ? frameworkView() : null),
+    }));
+    expect(screen.queryByText("AI suggestions are not set up yet")).not.toBeInTheDocument();
+    expect(screen.getByText("Preparing suggestions for all results")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Gaps Raqib noticed" })).toBeInTheDocument();
+  });
 });

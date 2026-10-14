@@ -53,6 +53,12 @@ export interface KpiListError {
 export interface KpiAssistantValue {
   /** usePermissions().can("ai.run"): false for donor viewers (no KPI UI at all). */
   enabled: boolean;
+  /**
+   * The KPI write controls are on: Suggest KPIs, Accept, Edit & accept, Reject, alternatives, Suggest again, Retry and
+   * the new-result prompt. False when the assistant is disabled, and on a project the user cannot change now (archived:
+   * the panel's `readOnly`, from useProjectAccess on the project page); the suggestions and runs stay readable then.
+   */
+  writable: boolean;
   /** undefined while the status is loading; false after a 503 ai_not_configured too. */
   aiConfigured: boolean | undefined;
   lang: AppLanguage;

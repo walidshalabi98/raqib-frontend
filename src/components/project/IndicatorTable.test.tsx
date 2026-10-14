@@ -230,6 +230,20 @@ describe("IndicatorTable read-only (donor viewers, archived projects)", () => {
     expect(screen.queryByRole("button", { name: /^Delete / })).not.toBeInTheDocument();
   });
 
+  it("gives an admin no Approve on an archived project, and keeps the Source column and AI label to read", async () => {
+    const indicator = makeIndicator({ id: "i-1", indicatorText: "Not yet approved", provenance: "ai_suggested", isApproved: false });
+    vi.mocked(api.getFramework).mockResolvedValue(framework("active", [indicator]));
+    vi.mocked(api.getUser).mockReturnValue(makeAuthUser({ role: "org_admin" }));
+    renderWithClient(<AuthProvider><IndicatorTable projectId="p-1" canEdit={false} /></AuthProvider>);
+    const row = await screen.findByText("Not yet approved").then(() => rowOf("Not yet approved"));
+    expect(within(row).getByText(AI_LABEL)).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Source" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Approve / })).not.toBeInTheDocument();
+    // Nor any KPI Assistant write control in the results chain above.
+    expect(await screen.findByText("Reduced food insecurity")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Suggest KPIs/ })).not.toBeInTheDocument();
+  });
+
   it("offers no framework creation when there is no framework", async () => {
     vi.mocked(api.getFramework).mockResolvedValue(null);
     renderWithClient(<IndicatorTable projectId="p-1" canEdit={false} />);

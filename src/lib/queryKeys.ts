@@ -24,6 +24,8 @@ export const queryKeys = {
   // KPI Assistant (Phase 4)
   kpiAssistantStatus: ["kpi-assistant-status"] as const,
   kpiSuggestions: (projectId: string) => ["kpi-suggestions", projectId] as const,
+  /** Every polled KPI run (the prefix of kpiSuggestionRun). */
+  kpiSuggestionRuns: ["kpi-suggestion-run"] as const,
   kpiSuggestionRun: (runId: string) => ["kpi-suggestion-run", runId] as const,
   indicatorQuality: (frameworkId: string) => ["indicator-quality", frameworkId] as const,
 };

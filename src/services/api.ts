@@ -498,10 +498,10 @@ class ApiClient {
     return this.request<KpiSuggestionRunResponse>(`/kpi-suggestion-runs/${runId}`);
   }
 
-  /** Accepts a suggestion; `edits` holds only the fields the user changed (none: accepted as suggested). */
   /**
-   * Accepts a suggestion, with the user's edits (draft fields only) and, for an alternative to an existing indicator,
-   * `replaceSource` to remove that indicator in the same transaction (409 source_has_data when it holds data).
+   * Accepts a suggestion, with the user's edits (draft fields only: none means accepted as suggested) and, for an
+   * alternative to an existing indicator, `replaceSource` to remove that indicator in the same transaction (409
+   * source_has_data when it holds data).
    */
   async acceptKpiSuggestion(id: string, edits?: IndicatorInput, options: { replaceSource?: boolean } = {}) {
     const body: AcceptKpiSuggestionBody = {

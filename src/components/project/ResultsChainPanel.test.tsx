@@ -243,7 +243,7 @@ describe("ResultsChainPanel", () => {
 // ------------------------------------------------------------------ KPI Assistant (Phase 4, design 9.5)
 
 /** The panel for a signed-in user of `role` (the KPI UI depends on the role). */
-function renderAs(role: UserRole, props: { indicators?: Indicator[] } = {}) {
+function renderAs(role: UserRole, props: { indicators?: Indicator[]; readOnly?: boolean } = {}) {
   vi.mocked(api.getUser).mockReturnValue(makeAuthUser({ role }));
   return renderWithClient(
     <AuthProvider>
@@ -465,6 +465,30 @@ describe("ResultsChainPanel read-only", () => {
     renderWithClient(<ResultsChainPanel projectId="p-1" frameworkId="fw-1" readOnly />);
     expect(await screen.findByText("No results chain yet.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add result" })).not.toBeInTheDocument();
+  });
+});
+
+describe("ResultsChainPanel with the KPI Assistant on an archived project (readOnly)", () => {
+  it("staff read the suggestions and the indicators' quality notes, with no KPI or results write control", async () => {
+    vi.mocked(api.getKpiSuggestions).mockResolvedValue(makeKpiSuggestionList({
+      suggestions: [makeKpiSuggestion({ id: "s-o2", resultId: "o2", resultCode: "O2", suggestion: { name: "Minimum dietary diversity for women" } })],
+    }));
+    vi.mocked(api.getIndicatorQuality).mockResolvedValue([
+      makeIndicatorQuality({ indicatorId: "i-9", qualityBand: "weak", qualityScore: 60, needsAlternatives: true, warnings: [makeKpiWarning("target_in_name", { penalty: 15 })] }),
+    ]);
+    const weak = makeIndicator({ id: "i-9", resultId: "o1", indicatorText: "Increase dietary diversity to 60%", provenance: "ai_suggested", isApproved: false });
+    renderAs("org_admin", { readOnly: true, indicators: [weak] });
+
+    const card = await screen.findByRole("article", { name: "Minimum dietary diversity for women" });
+    expect(resultItem("O2")).toContainElement(card);
+    expect(within(resultItem("O2")).getByText(/This project is archived: you can read these suggestions/)).toBeInTheDocument();
+    expect(within(card).queryAllByRole("button").map((b) => b.textContent)).toEqual(["Show Arabic name", "Why?"]);
+    // The weak indicator opens with its notes, without the alternatives button.
+    expect(await screen.findByText("Move the target out of the name.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Show alternatives/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Suggest KPIs/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^(Add result|Edit |Delete |Add a result under )/ })).not.toBeInTheDocument();
+    expect(api.requestKpiSuggestions).not.toHaveBeenCalled();
   });
 });
 

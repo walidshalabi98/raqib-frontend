@@ -12,7 +12,7 @@ export type SuggestKpisButtonProps = { variant: "row"; result: ResultNode } | { 
 
 /**
  * "Suggest KPIs" for one result (row) or for all results (header) (knowledge/kpi-assistant-spec.md §A2 trigger 1;
- * design 9.3–9.4). Null when the assistant is disabled (donor viewers) or the result is an activity. While a run for
+ * design 9.3–9.4). Null when the assistant is disabled (donor viewers), the project is read-only (archived) or the result is an activity. While a run for
  * it is active (a framework run counts for every row) the button is aria-disabled and shows a spinner; when the AI is
  * not configured it stays visible but aria-disabled, described by the not-configured notice. The row button has the
  * id suggestKpisButtonId(result.id), the focus fallback of the result's suggestion list.
@@ -20,7 +20,7 @@ export type SuggestKpisButtonProps = { variant: "row"; result: ResultNode } | { 
 export function SuggestKpisButton(props: SuggestKpisButtonProps) {
   const kpi = useKpiAssistant();
   const { t } = useTranslation(undefined, { lng: kpi.lang });
-  if (!kpi.enabled) return null;
+  if (!kpi.writable) return null;
   if (props.variant === "row" && !isSuggestableLevel(props.result.level)) return null;
 
   const frameworkRun = kpi.runFor({ scope: "framework" });

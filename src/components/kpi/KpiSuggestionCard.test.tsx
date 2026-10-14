@@ -316,4 +316,30 @@ describe("KpiSuggestionCard", () => {
     expect(preventDefault).toHaveBeenCalled();
     expect(screen.getByRole("button", { name: `تعديل وقبول «${NAME_AR}»` })).toBeInTheDocument();
   });
+
+  it("on a read-only (archived) project is shown to read: name, badges and Why?, without Accept, Edit & accept, Reject or alternatives", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderCard({}, makeKpiAssistantValue({ writable: false }));
+    const card = screen.getByRole("article", { name: NAME });
+    expect(within(card).getByText("Quality: Strong (100/100)")).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Why?" }));
+    expect(within(card).getByText("Means of verification")).toBeVisible();
+    for (const name of [`Accept “${NAME}”`, `Edit & accept “${NAME}”`, `Reject “${NAME}”`, `Show alternatives to “${NAME}”`]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    expect(dialogProps).not.toHaveBeenCalled();
+  });
+
+  it("explains a 409 project_archived accept with the archived message (the page then turns read-only)", async () => {
+    vi.mocked(api.acceptKpiSuggestion).mockRejectedValue(new ApiError("This project is archived", 409, "project_archived"));
+    const user = userEvent.setup({ delay: null });
+    const { onDecided } = renderCard();
+    await user.click(screen.getByRole("button", { name: `Accept “${NAME}”` }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not accept the suggestion", {
+      description: "This project is archived, so it is read-only. An organisation admin can restore it to make changes.",
+    }));
+    // Not decided: the suggestion stays to read on the archived project.
+    expect(onDecided).not.toHaveBeenCalled();
+  });
 });
+

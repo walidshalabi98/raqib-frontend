@@ -581,6 +581,17 @@ describe("IndicatorForm accept mode (Edit & accept, design 9.5)", { timeout: 20_
     expect(onAccepted).not.toHaveBeenCalled();
   });
 
+  it("closes with the archived message when the project was archived meanwhile (409 project_archived)", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.acceptKpiSuggestion).mockRejectedValue(new ApiError("This project is archived", 409, "project_archived"));
+    const { onAccepted, onCancel } = renderAccept();
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    // The page turns read-only and the dialog closes with it, so the toast says why.
+    await waitFor(() => expect(onCancel).toHaveBeenCalled());
+    expect(toast.error).toHaveBeenCalledWith("This project is archived, so it is read-only. An organisation admin can restore it to make changes.");
+    expect(onAccepted).not.toHaveBeenCalled();
+  });
+
   it("closes with the duplicate message when the result already has the indicator (409 duplicate)", async () => {
     const user = userEvent.setup({ delay: null });
     vi.mocked(api.acceptKpiSuggestion).mockRejectedValue(new ApiError("Duplicate", 409, "duplicate"));

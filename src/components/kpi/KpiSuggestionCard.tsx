@@ -54,7 +54,8 @@ function ModelText({ children, className }: { children: ReactNode; className?: s
  * Show alternatives (accessible names include the indicator name; aria-disabled while an accept runs, so no double
  * accept). Accept on an alternative to an existing indicator first asks "Replace the old indicator?" inline (Replace
  * sends replaceSource; Keep both accepts it next to the old one; SPEC-8). The AI never invents numbers: values shown
- * are the server-validated ones (me-foundations §6).
+ * are the server-validated ones (me-foundations §6). On a read-only (archived) project (`writable` false) the card is
+ * shown to read, without any of the actions.
  */
 export function KpiSuggestionCard({ suggestion, result, nodes, aiLabelId, lang, onDecided }: KpiSuggestionCardProps) {
   const kpi = useKpiAssistant();
@@ -264,7 +265,7 @@ export function KpiSuggestionCard({ suggestion, result, nodes, aiLabelId, lang, 
         </div>
       )}
 
-      {choosingReplace && source && !rejecting ? (
+      {!kpi.writable ? null : choosingReplace && source && !rejecting ? (
         <section aria-labelledby={replaceTitleId} className="mt-3 space-y-2 rounded-md border bg-secondary/40 p-3">
           <h5 id={replaceTitleId} ref={replaceHeading} tabIndex={-1} className="text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             {t("kpi.replace.title")}

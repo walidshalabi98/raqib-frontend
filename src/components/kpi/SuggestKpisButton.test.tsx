@@ -83,4 +83,9 @@ describe("SuggestKpisButton", () => {
     renderWith(makeKpiAssistantValue({ lang: "ar" }), <SuggestKpisButton variant="row" result={outcome} />);
     expect(screen.getByRole("button", { name: "اقتراح مؤشرات للنتيجة O1" })).toHaveTextContent("اقتراح مؤشرات");
   });
+
+  it("renders nothing on a read-only (archived) project", () => {
+    const { container } = renderWith(makeKpiAssistantValue({ writable: false }), <><SuggestKpisButton variant="header" /><SuggestKpisButton variant="row" result={outcome} /></>);
+    expect(container).toBeEmptyDOMElement();
+  });
 });

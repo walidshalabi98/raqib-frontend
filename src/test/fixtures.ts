@@ -280,12 +280,14 @@ export function makeIndicatorQuality(overrides: Partial<IndicatorQuality> = {}):
 }
 
 /**
- * A KPI Assistant context value for components tested without the provider: enabled, AI configured, nothing pending
- * and no run. Pass functions (e.g. vi.fn()) to observe calls.
+ * A KPI Assistant context value for components tested without the provider: enabled and writable (a disabled one is
+ * not writable either), AI configured, nothing pending and no run. Pass functions (e.g. vi.fn()) to observe calls.
  */
 export function makeKpiAssistantValue(overrides: Partial<KpiAssistantValue> = {}): KpiAssistantValue {
+  const enabled = overrides.enabled ?? true;
   return {
-    enabled: true,
+    enabled,
+    writable: enabled,
     aiConfigured: true,
     lang: "en",
     projectId: "p-1",

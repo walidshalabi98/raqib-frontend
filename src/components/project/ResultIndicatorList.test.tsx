@@ -136,4 +136,14 @@ describe("ResultIndicatorList", () => {
     expect(screen.getByText("Average coping strategy index")).toHaveAttribute("lang", "en");
     expect(screen.getByRole("button", { name: /^عرض بدائل/ })).toBeInTheDocument();
   });
+
+  it("on a read-only (archived) project keeps the quality notes but offers no alternatives", () => {
+    const { request } = renderList({ value: { writable: false } });
+    const item = itemOf("Average coping strategy index");
+    expect(within(item).getByText("Quality: Weak (60/100)")).toBeInTheDocument();
+    expect(within(item).getByText("Raqib found quality problems in this indicator.")).toBeInTheDocument();
+    expect(within(item).getByText("Move the target out of the name.")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(request).not.toHaveBeenCalled();
+  });
 });

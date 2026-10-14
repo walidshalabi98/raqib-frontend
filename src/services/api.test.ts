@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/services/api";
 import { ApiError, httpStatusOf } from "@/lib/apiError";
+import { onProjectArchivedRefusal } from "@/lib/projectEvents";
 
 function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -343,5 +344,44 @@ describe("api client: an expired access token (SR-7, SR-9)", () => {
     );
     expect(httpStatusOf(await api.getUsers().catch((e: unknown) => e))).toBe(401);
     expect(api.getToken()).toBeNull();
+  });
+});
+
+describe("api client: KPI Assistant calls on an archived project", () => {
+  it("passes a 409 project_archived on with its code and tells the open project page (it turns read-only)", async () => {
+    const heard = vi.fn();
+    const stop = onProjectArchivedRefusal(heard);
+    try {
+      const refusal = () => jsonResponse(409, { message: "This project is archived. Restore it to make changes.", code: "project_archived" });
+      vi.stubGlobal("fetch", vi.fn(async () => refusal()));
+      const calls: Array<() => Promise<unknown>> = [
+        () => api.requestKpiSuggestions("p-1", { scope: "result", resultId: "o1" }),
+        () => api.acceptKpiSuggestion("s-1"),
+        () => api.rejectKpiSuggestion("s-1", { reason: "wording" }),
+        () => api.requestAlternative("i-1"),
+      ];
+      for (const call of calls) {
+        const err = await call().catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(ApiError);
+        expect(httpStatusOf(err)).toBe(409);
+        expect((err as ApiError).code).toBe("project_archived");
+      }
+      expect(heard).toHaveBeenCalledTimes(calls.length);
+    } finally {
+      stop();
+    }
+  });
+
+  it("does not announce other 409s (a suggestion decided elsewhere)", async () => {
+    const heard = vi.fn();
+    const stop = onProjectArchivedRefusal(heard);
+    try {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(409, { message: "Already decided", code: "already_decided", details: { status: "accepted" } })));
+      const err = await api.acceptKpiSuggestion("s-1").catch((e: unknown) => e);
+      expect((err as ApiError).details).toEqual({ status: "accepted" });
+      expect(heard).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
   });
 });
