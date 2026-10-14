@@ -14,7 +14,7 @@ export const USER_ROLES: readonly UserRole[] = Object.freeze(["platform_admin", 
 /** May write, run AI features and see beneficiary-level personal data. */
 export const STAFF_ROLES: readonly UserRole[] = Object.freeze(["org_admin", "platform_admin", "me_officer"] as const);
 
-/** Organisation settings, users, approvals (reports published to donors included), project create/archive. */
+/** Organisation settings, users, approvals (reports published to donors included), project create, archive, restore and delete. */
 export const ADMIN_ROLES: readonly UserRole[] = Object.freeze(["org_admin", "platform_admin"] as const);
 
 const PLATFORM_ROLES: readonly UserRole[] = Object.freeze(["platform_admin"] as const);
@@ -22,7 +22,10 @@ const PLATFORM_ROLES: readonly UserRole[] = Object.freeze(["platform_admin"] as 
 export type Capability =
   | "project.create"
   | "project.edit"
+  /** Archive a project and restore it (POST /api/projects/:id/archive and /restore). */
   | "project.archive"
+  /** Delete a project and everything in it for good, after typing its name (DELETE /api/projects/:id). */
+  | "project.delete"
   | "framework.edit"
   | "framework.approve"
   | "data.enter"
@@ -44,7 +47,10 @@ export type Capability =
   /** The full project export with beneficiaries, and the register CSV. */
   | "export.personalData"
   | "org.manage"
+  /** List, invite and change the organisation's users. */
   | "users.manage"
+  /** Give a member a new temporary password (POST /api/users/:id/reset-password); see canResetPasswordOf. */
+  | "users.resetPassword"
   | "templates.manage";
 
 /** The roles allowed each capability. donor_viewer has none: donors read results only. */
@@ -52,6 +58,7 @@ export const CAPABILITY_ROLES: Readonly<Record<Capability, readonly UserRole[]>>
   "project.create": ADMIN_ROLES,
   "project.edit": STAFF_ROLES,
   "project.archive": ADMIN_ROLES,
+  "project.delete": ADMIN_ROLES,
   "framework.edit": STAFF_ROLES,
   "framework.approve": ADMIN_ROLES,
   "data.enter": STAFF_ROLES,
@@ -67,8 +74,33 @@ export const CAPABILITY_ROLES: Readonly<Record<Capability, readonly UserRole[]>>
   "export.personalData": STAFF_ROLES,
   "org.manage": ADMIN_ROLES,
   "users.manage": ADMIN_ROLES,
+  "users.resetPassword": ADMIN_ROLES,
   "templates.manage": PLATFORM_ROLES,
 });
+
+/**
+ * Capabilities that change a project's data. While a project is archived the server refuses every write to it
+ * (409 `project_archived`) except restoring and deleting it, so these are off for everyone on an archived project
+ * (`projectAccess` in src/lib/projectAccess.ts). The others only read (seeing records, exports, AI output and
+ * the AI risk analysis, a GET) or manage the project itself (archive, restore, delete).
+ */
+export const PROJECT_WRITE_CAPABILITIES: readonly Capability[] = Object.freeze([
+  "project.edit",
+  "framework.edit",
+  "framework.approve",
+  "data.enter",
+  "document.manage",
+  "qualitative.manage",
+  "assessment.request",
+  "assessment.update",
+  "report.generate",
+  "report.publish",
+] as const);
+
+/** True when `capability` changes a project's data (off while the project is archived). */
+export function isProjectWrite(capability: Capability): boolean {
+  return PROJECT_WRITE_CAPABILITIES.includes(capability);
+}
 
 /** True only for one of the four roles the backend knows. */
 export function isUserRole(value: unknown): value is UserRole {
@@ -80,4 +112,19 @@ export function can(role: string | null | undefined, capability: Capability): bo
   if (!isUserRole(role)) return false;
   if (!Object.prototype.hasOwnProperty.call(CAPABILITY_ROLES, capability)) return false;
   return CAPABILITY_ROLES[capability].includes(role);
+}
+
+/**
+ * Whether `actor` may reset `target`'s password from the users list: the users.resetPassword capability,
+ * not for their own account (they use Settings → Change password, which asks for the current one), and a
+ * platform admin's password only by a platform admin (as only a platform admin can assign that role).
+ */
+export function canResetPasswordOf(
+  actor: { id: string; role: string | null | undefined } | null | undefined,
+  target: { id: string; role: string | null | undefined },
+): boolean {
+  if (!actor || !can(actor.role, "users.resetPassword")) return false;
+  if (actor.id === target.id) return false;
+  if (target.role === "platform_admin" && actor.role !== "platform_admin") return false;
+  return true;
 }

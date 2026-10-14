@@ -26,6 +26,7 @@ import {
 } from "@/lib/resultForm";
 import type { FormError } from "@/lib/indicatorForm";
 import { cn, errorMessage } from "@/lib/utils";
+import { isProjectArchived } from "@/lib/apiError";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,12 +64,14 @@ export interface ResultsChainPanelProps {
    * of its indicators (ResultIndicatorList); without it the count is plain text.
    */
   indicators?: readonly Indicator[];
+  /** No add, edit or delete of results (donor viewers, or an archived project): the tree is shown to read. */
+  readOnly?: boolean;
 }
 
 /**
  * The framework's results chain (impact → outcome → output → activity; knowledge/me-foundations.md §1) as an
  * indented tree with add, edit and delete. Levels offered follow the hierarchy rule; a result with child results
- * cannot be deleted.
+ * cannot be deleted. `readOnly` (donor viewers, or an archived project) shows the tree without any of those controls.
  *
  * Phase 4 (knowledge/kpi-assistant-spec.md §A2 and §A7; design sections 9.1 and 9.5): the panel holds the KPI
  * Assistant (KpiAssistantProvider, in the panel's language). The header has "Suggest KPIs for all results", each
@@ -77,7 +80,7 @@ export interface ResultsChainPanelProps {
  * prompt offers suggestions for it ("Not now" hides it; no automatic model call, design D7). Donor viewers get no
  * KPI UI. The indicator count is a disclosure of the result's indicators with their source, AI label and quality.
  */
-export function ResultsChainPanel({ projectId, frameworkId, indicators }: ResultsChainPanelProps) {
+export function ResultsChainPanel({ projectId, frameworkId, indicators, readOnly = false }: ResultsChainPanelProps) {
   const userLang = useUserLanguage();
   const [chosenLang, setChosenLang] = useState<AppLanguage | null>(null);
   const lang = chosenLang ?? userLang;
@@ -154,10 +157,12 @@ export function ResultsChainPanel({ projectId, frameworkId, indicators }: Result
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <LanguageToggle value={lang} onChange={setChosenLang} />
-                <Button size="sm" variant="outline" onClick={() => setEditing({ mode: "create", parent: null })}>
-                  <Plus aria-hidden="true" className="me-1.5 h-4 w-4" />
-                  {t("results.add")}
-                </Button>
+                {!readOnly && (
+                  <Button size="sm" variant="outline" onClick={() => setEditing({ mode: "create", parent: null })}>
+                    <Plus aria-hidden="true" className="me-1.5 h-4 w-4" />
+                    {t("results.add")}
+                  </Button>
+                )}
                 {nodes.length > 0 && <SuggestKpisButton variant="header" />}
               </div>
             </div>
@@ -178,11 +183,13 @@ export function ResultsChainPanel({ projectId, frameworkId, indicators }: Result
               </div>
             ) : nodes.length === 0 ? (
               <div className="flex flex-wrap items-center gap-3 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-                <span>{t("results.empty")}</span>
-                <Button size="sm" onClick={() => setEditing({ mode: "create", parent: null })}>
-                  <Plus aria-hidden="true" className="me-1.5 h-4 w-4" />
-                  {t("results.add")}
-                </Button>
+                <span>{t(readOnly ? "results.emptyReadOnly" : "results.empty")}</span>
+                {!readOnly && (
+                  <Button size="sm" onClick={() => setEditing({ mode: "create", parent: null })}>
+                    <Plus aria-hidden="true" className="me-1.5 h-4 w-4" />
+                    {t("results.add")}
+                  </Button>
+                )}
               </div>
             ) : (
               <ResultTreeList
@@ -191,6 +198,7 @@ export function ResultsChainPanel({ projectId, frameworkId, indicators }: Result
                 lang={lang}
                 t={t}
                 editButtonId={editButtonId}
+                readOnly={readOnly}
                 indicatorsByResult={indicatorsByResult}
                 quality={quality}
                 prompted={prompted}
@@ -204,7 +212,7 @@ export function ResultsChainPanel({ projectId, frameworkId, indicators }: Result
         </TooltipProvider>
       </DirectionProvider>
 
-      {editing && (
+      {editing && !readOnly && (
         <ResultNodeDialog
           key={editing.mode === "edit" ? editing.node.id : `new-${editing.parent?.id ?? "top"}`}
           editing={editing}
@@ -276,6 +284,8 @@ interface TreeProps {
   /** Results that show the new-result prompt. */
   prompted: ReadonlySet<string>;
   onDismissPrompt: (resultId: string) => void;
+  /** No add, edit or delete buttons (donor viewers, archived projects). */
+  readOnly: boolean;
   onAddChild: (parent: ResultNode) => void;
   onEdit: (node: ResultNode) => void;
   /** `opener` is the delete button, to return focus to when the confirmation is cancelled. */
@@ -296,7 +306,7 @@ function ResultTreeList({ items, nested = false, ...props }: TreeProps & { items
  */
 function ResultTreeItemView({ item, ...props }: TreeProps & { item: ResultTreeItem }) {
   const { node, children } = item;
-  const { nodes, lang, t, editButtonId, indicatorsByResult, quality, prompted, onDismissPrompt, onAddChild, onEdit, onDelete } = props;
+  const { nodes, lang, t, editButtonId, readOnly, indicatorsByResult, quality, prompted, onDismissPrompt, onAddChild, onEdit, onDelete } = props;
   const kpi = useKpiAssistant();
   const [toggled, setToggled] = useState<boolean | null>(null);
   const listId = useId();
@@ -341,40 +351,42 @@ function ResultTreeItemView({ item, ...props }: TreeProps & { item: ResultTreeIt
             <span className="text-xs text-muted-foreground">{countText}</span>
           )}
           <SuggestKpisButton variant="row" result={node} />
-          <span className="flex shrink-0 items-center">
-            {canHaveChildren && (
-              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 sm:h-8 sm:w-8"
-                aria-label={t("results.addChild", { code: node.code })} title={t("results.addChild", { code: node.code })}
-                onClick={() => onAddChild(node)}>
-                <Plus aria-hidden="true" className="h-4 w-4" />
+          {!readOnly && (
+            <span className="flex shrink-0 items-center">
+              {canHaveChildren && (
+                <Button type="button" variant="ghost" size="icon" className="h-11 w-11 sm:h-8 sm:w-8"
+                  aria-label={t("results.addChild", { code: node.code })} title={t("results.addChild", { code: node.code })}
+                  onClick={() => onAddChild(node)}>
+                  <Plus aria-hidden="true" className="h-4 w-4" />
+                </Button>
+              )}
+              <Button id={editButtonId(node)} type="button" variant="ghost" size="icon" className="h-11 w-11 sm:h-8 sm:w-8"
+                aria-label={t("results.edit", { code: node.code })} title={t("results.edit", { code: node.code })}
+                onClick={() => onEdit(node)}>
+                <Pencil aria-hidden="true" className="h-4 w-4" />
               </Button>
-            )}
-            <Button id={editButtonId(node)} type="button" variant="ghost" size="icon" className="h-11 w-11 sm:h-8 sm:w-8"
-              aria-label={t("results.edit", { code: node.code })} title={t("results.edit", { code: node.code })}
-              onClick={() => onEdit(node)}>
-              <Pencil aria-hidden="true" className="h-4 w-4" />
-            </Button>
-            {blocked ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" aria-disabled="true"
-                    className="h-11 w-11 cursor-not-allowed opacity-50 sm:h-8 sm:w-8"
-                    aria-label={t("results.delete", { code: node.code })} aria-describedby={whyId}
-                    onClick={(e) => e.preventDefault()}>
-                    <Trash2 aria-hidden="true" className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("results.deleteDisabled", { code: node.code })}</TooltipContent>
-              </Tooltip>
-            ) : (
-              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 text-destructive sm:h-8 sm:w-8"
-                aria-label={t("results.delete", { code: node.code })} title={t("results.delete", { code: node.code })}
-                onClick={(e) => onDelete(node, e.currentTarget)}>
-                <Trash2 aria-hidden="true" className="h-4 w-4" />
-              </Button>
-            )}
-            {blocked && <span id={whyId} className="sr-only">{t("results.deleteDisabled", { code: node.code })}</span>}
-          </span>
+              {blocked ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button type="button" variant="ghost" size="icon" aria-disabled="true"
+                      className="h-11 w-11 cursor-not-allowed opacity-50 sm:h-8 sm:w-8"
+                      aria-label={t("results.delete", { code: node.code })} aria-describedby={whyId}
+                      onClick={(e) => e.preventDefault()}>
+                      <Trash2 aria-hidden="true" className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("results.deleteDisabled", { code: node.code })}</TooltipContent>
+                </Tooltip>
+              ) : (
+                <Button type="button" variant="ghost" size="icon" className="h-11 w-11 text-destructive sm:h-8 sm:w-8"
+                  aria-label={t("results.delete", { code: node.code })} title={t("results.delete", { code: node.code })}
+                  onClick={(e) => onDelete(node, e.currentTarget)}>
+                  <Trash2 aria-hidden="true" className="h-4 w-4" />
+                </Button>
+              )}
+              {blocked && <span id={whyId} className="sr-only">{t("results.deleteDisabled", { code: node.code })}</span>}
+            </span>
+          )}
         </div>
       </div>
 
@@ -498,7 +510,8 @@ function ResultNodeDialog({
     },
     onError: (err) => {
       setServerError(errorMessage(err, t("results.toast.saveFailed")));
-      toast.error(t("results.toast.saveFailed"));
+      // Archived elsewhere meanwhile: the page turns read-only and this dialog closes with it, so the toast says why.
+      toast.error(t(isProjectArchived(err) ? "errors.projectArchived" : "results.toast.saveFailed"));
     },
   });
 

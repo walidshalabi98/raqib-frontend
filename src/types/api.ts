@@ -81,10 +81,58 @@ export interface AuthUser {
   organization: { id: string; name: string; nameAr?: string | null };
 }
 
-export interface LoginResponse {
+/** A session's token pair: sign-in, refresh, and POST /api/auth/change-password (which ends every other session). */
+export interface SessionTokens {
   accessToken: string;
   refreshToken: string;
+}
+
+export interface LoginResponse extends SessionTokens {
   user: AuthUser;
+}
+
+/** A member of the organisation as GET /api/users lists them (org admins and platform admins). */
+export interface OrgUser {
+  id: string;
+  email: string;
+  fullName: string;
+  fullNameAr?: string | null;
+  role: UserRole | string;
+  languagePref?: Language | string;
+  createdAt?: string;
+  lastLogin?: string | null;
+}
+
+/** POST /api/users/invite. */
+export interface UserInviteInput {
+  fullName: string;
+  email: string;
+  role: UserRole;
+}
+
+/**
+ * How a new password reaches the user, after an invitation or an admin's password reset. When the email went
+ * out, it carries a single-use link to choose a password and the answer holds no password (`emailSent: true`).
+ * Otherwise (email off, or the email failed) the API returns the temporary password once, for the admin to
+ * share privately; it is never stored, cached or logged by the app (src/components/settings/PasswordHandover.tsx).
+ */
+export interface PasswordHandover {
+  emailSent: boolean;
+  temporaryPassword?: string;
+}
+
+/** POST /api/users/invite → 201: the new user, and how the temporary password reaches them. */
+export interface InviteUserResponse extends PasswordHandover {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole | string;
+  createdAt?: string;
+}
+
+/** POST /api/users/:id/reset-password → 200. */
+export interface ResetUserPasswordResponse extends PasswordHandover {
+  id?: string;
 }
 
 // --------------------------------------------------------------- projects
@@ -212,6 +260,42 @@ export interface ProjectInput {
 
 /** PATCH /api/projects/:id: any subset of the create fields, plus `status`. */
 export type ProjectUpdateInput = Partial<ProjectInput> & { status?: ProjectStatus };
+
+/**
+ * GET /api/projects: `archived: true` lists archived projects only (`?archived=true`); otherwise archived
+ * projects are left out (owner decision of 13 October 2026).
+ */
+export interface ProjectListOptions {
+  archived?: boolean;
+}
+
+/** What DELETE /api/projects/:id removed, per table (the audit row keeps the same counts). */
+export interface ProjectRemovedCounts {
+  frameworks: number;
+  resultNodes: number;
+  indicators: number;
+  assessments: number;
+  dataPoints: number;
+  qualitativeEntries: number;
+  beneficiaries: number;
+  beneficiaryServices: number;
+  reports: number;
+  documents: number;
+  notifications: number;
+  /** Document files removed from storage after the database transaction. */
+  storageFilesRemoved: number;
+  /** Document files storage could not remove (logged by document id on the server; the request still succeeds). */
+  storageFilesFailed: number;
+}
+
+/**
+ * DELETE /api/projects/:id → 200: the project and everything that belongs to it are gone for good.
+ * Org admins and platform admins only; the body must carry the project's exact name (`confirmName`).
+ */
+export interface ProjectDeleteResponse {
+  deleted: true;
+  removed: ProjectRemovedCounts;
+}
 
 // -------------------------------------------------- frameworks and results
 

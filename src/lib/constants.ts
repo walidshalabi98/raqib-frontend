@@ -13,6 +13,7 @@ import type {
   KpiRunStep,
   KpiWarningCode,
   ParsingStatus,
+  ProjectStatus,
   QualityBand,
   ReportType,
   Sector,
@@ -64,6 +65,9 @@ export const DONOR_TYPES: readonly DonorType[] = [
 
 /** Report types (backend enum ReportType), in the order the Generate Report form offers them. */
 export const REPORT_TYPES = ["quarterly_summary", "monthly_progress", "annual_review", "assessment_report", "donor_export"] as const satisfies readonly ReportType[];
+
+/** Project statuses in lifecycle order; `archived` projects are read-only and left out of the active list. */
+export const PROJECT_STATUSES: readonly ProjectStatus[] = ["setup", "framework_review", "active", "completed", "archived"];
 
 export const INDICATOR_LEVELS: readonly IndicatorLevel[] = ["impact", "outcome", "output", "activity"];
 

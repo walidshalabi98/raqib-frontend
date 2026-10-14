@@ -106,19 +106,19 @@ describe("ProjectDetail: donor viewer", () => {
     expect(banner).toHaveTextContent(BANNER);
     expect(banner.querySelector("svg")).not.toBeNull();
     expect(screen.queryByRole("button", { name: /Order Assessment/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Project actions/ })).not.toBeInTheDocument();
 
     expect(await propsOf(user, "Risk Alerts", "RiskAlerts")).toEqual({ projectId: "p-1", readOnly: true });
-    expect(await propsOf(user, "Reports", "ReportsList")).toEqual({ projectId: "p-1", canGenerate: false, canPublish: false });
+    expect(await propsOf(user, "Reports", "ReportsList")).toEqual({ projectId: "p-1", canGenerate: false, canPublish: false, audience: "donor" });
     // Staff and donor viewers get the same dashboard screen; the server sends donors less.
     expect(await propsOf(user, "Dashboard", "ProjectDashboard")).toEqual({ projectId: "p-1" });
-    expect(await propsOf(user, "Documents", "DocumentManager")).toEqual({ projectId: "p-1", canManage: false });
-    expect(await propsOf(user, "Qualitative", "QualitativeCards")).toEqual({ projectId: "p-1", readOnly: true });
+    expect(await propsOf(user, "Documents", "DocumentManager")).toEqual({ projectId: "p-1", canManage: false, audience: "donor" });
+    expect(await propsOf(user, "Qualitative", "QualitativeCards")).toEqual({ projectId: "p-1", readOnly: true, canManage: false });
     expect(await propsOf(user, "Export", "ExportPanel")).toEqual({ projectId: "p-1", audience: "donor" });
-    expect(await propsOf(user, "Assessments", "AssessmentPipeline")).toEqual({ projectId: "p-1", readOnly: true });
+    expect(await propsOf(user, "Assessments", "AssessmentPipeline")).toEqual({ projectId: "p-1", readOnly: true, canRequest: false });
     expect(screen.queryByRole("button", { name: "Request assessment" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "M&E Framework" }));
-    expect(await screen.findByTestId("IndicatorTable")).toBeInTheDocument();
+    expect(await propsOf(user, "M&E Framework", "IndicatorTable")).toEqual({ projectId: "p-1", canEdit: false });
     expect(screen.queryByRole("heading", { name: "Generate M&E Framework" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Generate with AI" })).not.toBeInTheDocument();
   });
@@ -153,15 +153,17 @@ describe("ProjectDetail: M&E officer", () => {
 
     expect(await propsOf(user, "Risk Alerts", "RiskAlerts")).toEqual({ projectId: "p-1", readOnly: false });
     // Officers generate reports; publishing them to donors is for org admins.
-    expect(await propsOf(user, "Reports", "ReportsList")).toEqual({ projectId: "p-1", canGenerate: true, canPublish: false });
+    expect(await propsOf(user, "Reports", "ReportsList")).toEqual({ projectId: "p-1", canGenerate: true, canPublish: false, audience: "staff" });
     expect(await propsOf(user, "Dashboard", "ProjectDashboard")).toEqual({ projectId: "p-1" });
-    expect(await propsOf(user, "Documents", "DocumentManager")).toEqual({ projectId: "p-1", canManage: true });
-    expect(await propsOf(user, "Qualitative", "QualitativeCards")).toEqual({ projectId: "p-1", readOnly: false });
+    expect(await propsOf(user, "Documents", "DocumentManager")).toEqual({ projectId: "p-1", canManage: true, audience: "staff" });
+    expect(await propsOf(user, "Qualitative", "QualitativeCards")).toEqual({ projectId: "p-1", readOnly: false, canManage: true });
     expect(await propsOf(user, "Export", "ExportPanel")).toEqual({ projectId: "p-1", audience: "staff" });
-    expect(await propsOf(user, "Assessments", "AssessmentPipeline")).toEqual({ projectId: "p-1", readOnly: false });
+    expect(await propsOf(user, "Assessments", "AssessmentPipeline")).toEqual({ projectId: "p-1", readOnly: false, canRequest: true });
     expect(await screen.findByRole("button", { name: "Request assessment" })).toBeInTheDocument();
+    // Archiving and deleting are for org admins.
+    expect(screen.queryByRole("button", { name: /Project actions/ })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "M&E Framework" }));
+    expect(await propsOf(user, "M&E Framework", "IndicatorTable")).toEqual({ projectId: "p-1", canEdit: true });
     const card = (await screen.findByRole("heading", { name: "Generate M&E Framework" })).parentElement as HTMLElement;
     expect(within(card).getByRole("link")).toHaveAttribute("href", "/wizard/p-1");
   });
@@ -171,7 +173,7 @@ describe("ProjectDetail: org admin", () => {
   it("may publish reports to donor viewers", async () => {
     signInAs("org_admin");
     const user = await renderPage();
-    expect(await propsOf(user, "Reports", "ReportsList")).toEqual({ projectId: "p-1", canGenerate: true, canPublish: true });
+    expect(await propsOf(user, "Reports", "ReportsList")).toEqual({ projectId: "p-1", canGenerate: true, canPublish: true, audience: "staff" });
   });
 });
 
@@ -180,7 +182,7 @@ describe("ProjectDetail: tabs in the address", () => {
     signInAs("donor_viewer");
     await renderPage("/projects/p-1?tab=reports");
     expect(screen.getByRole("tab", { name: "Reports" })).toHaveAttribute("aria-selected", "true");
-    expect(JSON.parse(screen.getByTestId("ReportsList").textContent ?? "{}")).toEqual({ projectId: "p-1", canGenerate: false, canPublish: false });
+    expect(JSON.parse(screen.getByTestId("ReportsList").textContent ?? "{}")).toEqual({ projectId: "p-1", canGenerate: false, canPublish: false, audience: "donor" });
   });
 
   it("opens Overview for an unknown tab, and keeps the open tab in the address", async () => {

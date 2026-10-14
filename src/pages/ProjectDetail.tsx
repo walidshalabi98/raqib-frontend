@@ -1,12 +1,18 @@
 import { useParams, useSearchParams, Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { api } from "@/services/api";
+import { toast } from "sonner";
 import { dirFor } from "@/i18n";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useProjectAccess } from "@/hooks/useProjectAccess";
+import { invalidateProjectViews, useProject, useRestoreProject } from "@/hooks/useProjects";
 import { SECTOR_LABELS } from "@/lib/constants";
 import { PROJECT_TAB_VALUES, projectTabFrom, type ProjectTab } from "@/lib/projectTabs";
+import { onProjectArchivedRefusal } from "@/lib/projectEvents";
+import { queryKeys } from "@/lib/queryKeys";
+import { restoreErrorKey } from "@/lib/projectLifecycle";
+import { isolate } from "@/lib/reports";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { MetricCard } from "@/components/common/MetricCard";
@@ -19,8 +25,10 @@ import { QualitativeCards } from "@/components/project/QualitativeCards";
 import DocumentManager from "@/components/project/DocumentManager";
 import RiskAlerts from "@/components/project/RiskAlerts";
 import ExportPanel from "@/components/project/ExportPanel";
-import { ArrowLeft, Download, ClipboardCheck, BarChart3, Upload, Loader2, MapPin, Eye } from "lucide-react";
-import { lazy, Suspense, Component, useId, type ReactNode } from "react";
+import { ArchivedProjectBanner, ProjectActions } from "@/components/project/ProjectActions";
+import type { ProjectDetail as ProjectDetailData } from "@/types/api";
+import { AlertCircle, Archive, ArrowLeft, Download, ClipboardCheck, BarChart3, Upload, Loader2, MapPin, Eye } from "lucide-react";
+import { lazy, Suspense, Component, useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 const PalestineMap = lazy(() => import("@/components/project/PalestineMap"));
 
@@ -51,18 +59,37 @@ const timelineStages = ["Setup", "Baseline", "Implementation", "Midterm", "Endli
  */
 const isProjectTab = (value: string | null): value is ProjectTab => (PROJECT_TAB_VALUES as readonly (string | null)[]).includes(value);
 
+/**
+ * The timeline stage a status stands for. None (-1) for an archived project: any project can be archived, from
+ * setup on, so the timeline must not claim that its baseline, midterm and endline took place.
+ */
 function getStageIndex(status: string): number {
-  const map: Record<string, number> = { setup: 0, framework_review: 1, active: 2, completed: 5, archived: 5 };
-  return map[status] || 0;
+  if (status === "archived") return -1;
+  const map: Record<string, number> = { setup: 0, framework_review: 1, active: 2, completed: 5 };
+  return map[status] ?? 0;
+}
+
+/**
+ * Moves focus to the archived banner after a change was refused because the project is archived, when the
+ * refused form or dialog closed with the page's write controls and left focus nowhere. Focus that is still
+ * somewhere (a dialog that stays open shows the reason itself and traps focus) stays there.
+ */
+function focusArchivedBanner(bannerId: string) {
+  const active = document.activeElement;
+  if (active && active !== document.body && active.isConnected) return;
+  document.getElementById(bannerId)?.focus();
 }
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
-  // The page decides what each role sees and passes it down; the server enforces every rule.
-  const { can, readOnly } = usePermissions();
+  // The role alone: the donor banner, and who may archive, restore and delete.
+  const { can: roleCan, readOnly } = usePermissions();
   const lang = useUserLanguage();
   const { t } = useTranslation(undefined, { lng: lang });
+  const queryClient = useQueryClient();
   const timelineHeadingId = useId();
+  const headingId = useId();
+  const archivedBannerId = useId();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: ProjectTab = projectTabFrom(searchParams.get("tab"));
   // The open tab is in the address, so it can be linked to and survives a reload; switching replaces the entry.
@@ -79,16 +106,70 @@ export default function ProjectDetail() {
     );
   };
 
-  const { data: project, isLoading } = useQuery({
-    queryKey: ['project', id],
-    queryFn: () => api.getProject(id!),
-    enabled: !!id,
-  });
+  const { data: project, isError, refetch } = useProject(id);
+  // The page decides what each role may do on this project and passes it down; the server enforces every rule.
+  // One flag set for the whole page: an archived project is read-only for everyone (src/lib/projectAccess.ts).
+  const access = useProjectAccess(project);
+  const { can } = access;
+  const restore = useRestoreProject();
 
-  if (isLoading || !project) {
+  // A change the server refused because the project is archived (someone archived it elsewhere): fetch the
+  // project again, so the page shows the archived banner and turns read-only. The form or dialog that sent the
+  // change closes with the write controls (its opener too), so once the banner shows, focus moves to it: keyboard
+  // and screen reader users land on the reason instead of the top of the page (WCAG 2.4.3).
+  const [archivedRefusals, setArchivedRefusals] = useState(0);
+  const handledRefusals = useRef(0);
+  useEffect(() => {
+    if (!id) return;
+    return onProjectArchivedRefusal(() => {
+      void invalidateProjectViews(queryClient, id).then(() => {
+        if (queryClient.getQueryData<ProjectDetailData>(queryKeys.project(id))?.status === "archived") {
+          setArchivedRefusals((count) => count + 1);
+        }
+      });
+    });
+  }, [id, queryClient]);
+  useEffect(() => {
+    if (!access.archived || archivedRefusals === handledRefusals.current) return;
+    handledRefusals.current = archivedRefusals;
+    // After the closed dialog hands focus back: Radix does that in a timeout, to an opener that is gone by now.
+    const timer = window.setTimeout(() => focusArchivedBanner(archivedBannerId), 0);
+    return () => window.clearTimeout(timer);
+  }, [access.archived, archivedRefusals, archivedBannerId]);
+
+  const restoreProject = () => {
+    if (!project || restore.isPending) return;
+    const name = isolate(project.name);
+    restore.mutate(project.id, {
+      onSuccess: () => {
+        toast.success(t("projectActions.toast.restored", { name }));
+        // The banner and its button are gone: focus goes to the page heading (WCAG 2.4.3).
+        document.getElementById(headingId)?.focus();
+      },
+      onError: (err) => {
+        toast.error(t(restoreErrorKey(err)));
+      },
+    });
+  };
+
+  if (!project) {
+    // Not found (deleted meanwhile, or another organisation's) or no connection: say so instead of spinning.
+    if (isError) {
+      return (
+        <div role="alert" lang={lang} dir={dirFor(lang)} className="flex flex-wrap items-center gap-3 rounded-md border p-4 text-sm">
+          <AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-destructive" />
+          <span className="min-w-0 flex-1">{t("projectDetail.loadError")}</span>
+          <Button size="sm" variant="outline" className="min-h-11" onClick={() => void refetch()}>{t("common.retry")}</Button>
+          <Button size="sm" variant="outline" className="min-h-11" asChild>
+            <Link to="/projects">{t("projectDetail.backToProjects")}</Link>
+          </Button>
+        </div>
+      );
+    }
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div role="status" className="flex items-center justify-center h-64">
+        <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin text-muted-foreground" />
+        <span lang={lang} className="sr-only">{t("common.loading")}</span>
       </div>
     );
   }
@@ -101,31 +182,41 @@ export default function ProjectDetail() {
   const atRisk = indicators.filter((i) => i.status === "at_risk").length;
   const offTrack = indicators.filter((i) => i.status === "off_track").length;
 
-  const tabs: { label: string; value: ProjectTab }[] = [
-    { label: "Overview", value: "overview" },
-    { label: "M&E Framework", value: "me-framework" },
-    { label: "Dashboard", value: "dashboard" },
-    { label: "Risk Alerts", value: "risks" },
-    { label: "Assessments", value: "assessments" },
-    { label: "Reports", value: "reports" },
-    { label: "Documents", value: "documents" },
-    { label: "Qualitative", value: "qualitative" },
-    { label: "Export", value: "export" },
-  ];
+  // Archived projects go back to the archived list.
+  const backTo = access.archived ? "/projects?view=archived" : "/projects";
 
   return (
     <div className="space-y-5 animate-fade-in">
-      <div className="flex items-center gap-3">
-        <Link to="/projects" aria-label={t("projectDetail.backToProjects")} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
-          <ArrowLeft aria-hidden="true" className="h-4 w-4" />
-        </Link>
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{project.name}</h1>
-          <p className="text-sm text-muted-foreground">{project.donor} · {SECTOR_LABELS[project.sector] || project.sector}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link to={backTo} aria-label={t("projectDetail.backToProjects")} lang={lang} className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg hover:bg-secondary transition-colors sm:min-h-9 sm:min-w-9">
+            <ArrowLeft aria-hidden="true" className="h-4 w-4 rtl:-scale-x-100" />
+          </Link>
+          <div className="min-w-0">
+            <h1 id={headingId} tabIndex={-1} className="break-words text-xl font-semibold tracking-tight focus:outline-none">{project.name}</h1>
+            <p className="text-sm text-muted-foreground">{project.donor} · {SECTOR_LABELS[project.sector] || project.sector}</p>
+          </div>
         </div>
+        <ProjectActions
+          project={project}
+          lang={lang}
+          canArchive={roleCan("project.archive")}
+          canDelete={roleCan("project.delete")}
+          onRestore={restoreProject}
+          restoring={restore.isPending}
+          archivedBannerId={archivedBannerId}
+        />
       </div>
 
-      {readOnly && (
+      {access.archived ? (
+        <ArchivedProjectBanner
+          id={archivedBannerId}
+          lang={lang}
+          canRestore={roleCan("project.archive")}
+          onRestore={restoreProject}
+          restoring={restore.isPending}
+        />
+      ) : readOnly && (
         <p role="note" lang={lang} dir={dirFor(lang)} className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2 text-start text-sm">
           <Eye aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{t("access.readOnlyBanner")}</span>
@@ -133,14 +224,14 @@ export default function ProjectDetail() {
       )}
 
       <Tabs value={tab} onValueChange={selectTab} className="w-full">
-        <TabsList className="w-full justify-start overflow-x-auto bg-transparent border-b rounded-none h-auto p-0 gap-0">
-          {tabs.map(tab => (
+        <TabsList aria-label={t("projectDetail.sections")} lang={lang} className="w-full justify-start overflow-x-auto bg-transparent border-b rounded-none h-auto p-0 gap-0">
+          {PROJECT_TAB_VALUES.map((value) => (
             <TabsTrigger
-              key={tab.value}
-              value={tab.value}
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary px-4 py-2.5 text-sm whitespace-nowrap"
+              key={value}
+              value={value}
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary px-4 py-2.5 text-sm whitespace-nowrap min-h-11"
             >
-              {tab.label}
+              {t(`projectDetail.tab.${value}`)}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -169,11 +260,18 @@ export default function ProjectDetail() {
           {/* Timeline */}
           <div className="card-surface p-5">
             <h3 id={timelineHeadingId} className="text-sm font-semibold mb-4">Project Timeline</h3>
+            {/* Archived: no stage is current or done (text and icon, not colour alone). */}
+            {access.archived && (
+              <p lang={lang} dir={dirFor(lang)} className="mb-3 flex items-start gap-2 text-start text-sm text-muted-foreground">
+                <Archive aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{t("projectDetail.timelineArchived")}</span>
+              </p>
+            )}
             {/* Scrolls sideways on phones: focusable so keyboard users can scroll it too. */}
             <div role="region" aria-labelledby={timelineHeadingId} tabIndex={0} className="flex items-center overflow-x-auto pb-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               {timelineStages.map((stage, i) => (
                 <div key={stage} className="flex items-center">
-                  <div className="flex flex-col items-center">
+                  <div className="flex flex-col items-center" aria-current={i === currentStage ? "step" : undefined}>
                     <div className={`h-4 w-4 rounded-full border-2 ${
                       i < currentStage ? "bg-success border-success" : i === currentStage ? "bg-primary border-primary" : "bg-card border-muted-foreground/30"
                     }`} />
@@ -212,7 +310,7 @@ export default function ProjectDetail() {
 
         {/* M&E Framework */}
         <TabsContent value="me-framework" className="space-y-4 mt-5">
-          {isSetup && can("ai.run") && (
+          {isSetup && can("framework.edit") && can("ai.run") && (
             <div className="card-surface p-6 text-center">
               <Upload className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <h3 className="text-lg font-semibold mb-2">Generate M&E Framework</h3>
@@ -223,7 +321,7 @@ export default function ProjectDetail() {
               <p className="text-xs text-muted-foreground mt-3">Or create a manual framework below</p>
             </div>
           )}
-          <IndicatorTable projectId={id!} />
+          <IndicatorTable projectId={id!} canEdit={can("framework.edit")} />
         </TabsContent>
 
         {/* Dashboard */}
@@ -239,22 +337,22 @@ export default function ProjectDetail() {
         {/* Assessments */}
         <TabsContent value="assessments" className="space-y-4 mt-5">
           {can("assessment.request") && <div className="flex justify-end"><AssessmentModal /></div>}
-          <AssessmentPipeline projectId={id!} readOnly={!can("ai.review")} />
+          <AssessmentPipeline projectId={id!} readOnly={!can("ai.review")} canRequest={can("assessment.request")} />
         </TabsContent>
 
         {/* Reports */}
         <TabsContent value="reports" className="mt-5">
-          <ReportsList projectId={id!} canGenerate={can("report.generate")} canPublish={can("report.publish")} />
+          <ReportsList projectId={id!} canGenerate={can("report.generate")} canPublish={can("report.publish")} audience={access.audience} />
         </TabsContent>
 
         {/* Documents */}
         <TabsContent value="documents" className="mt-5">
-          <DocumentManager projectId={id!} canManage={can("document.manage")} />
+          <DocumentManager projectId={id!} canManage={can("document.manage")} audience={access.audience} />
         </TabsContent>
 
         {/* Qualitative */}
         <TabsContent value="qualitative" className="mt-5">
-          <QualitativeCards projectId={id!} readOnly={!can("qualitative.manage")} />
+          <QualitativeCards projectId={id!} readOnly={access.audience === "donor"} canManage={can("qualitative.manage")} />
         </TabsContent>
 
         {/* Export */}

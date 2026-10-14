@@ -24,9 +24,10 @@ function getStageIndex(status: string): number {
 
 /**
  * The project's assessments. `readOnly` (donor viewers) hides the AI report, which nobody has reviewed yet
- * (the API sends donors no report), and the prompt to request an assessment.
+ * (the API sends donors no report), and the prompt to request an assessment. `canRequest` false (donor viewers,
+ * or an archived project) hides that prompt only.
  */
-export function AssessmentPipeline({ projectId, readOnly = false }: { projectId: string; readOnly?: boolean }) {
+export function AssessmentPipeline({ projectId, readOnly = false, canRequest = !readOnly }: { projectId: string; readOnly?: boolean; canRequest?: boolean }) {
   const [viewingReport, setViewingReport] = useState<any>(null);
   const [loadingReport, setLoadingReport] = useState<string | null>(null);
   const lang = useUserLanguage();
@@ -58,7 +59,7 @@ export function AssessmentPipeline({ projectId, readOnly = false }: { projectId:
       <div className="card-surface p-8 text-center text-muted-foreground">
         <Brain className="h-10 w-10 mx-auto mb-3 opacity-30" />
         <p>No assessments yet.</p>
-        {!readOnly && <p className="text-sm mt-1">Request an assessment and AI will automatically generate a comprehensive report.</p>}
+        {canRequest && <p className="text-sm mt-1">Request an assessment and AI will automatically generate a comprehensive report.</p>}
       </div>
     );
   }

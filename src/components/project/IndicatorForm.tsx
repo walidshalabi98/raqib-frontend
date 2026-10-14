@@ -45,7 +45,7 @@ import { buildResultTree, flattenResultTree, resultText } from "@/lib/resultsHie
 import { queryKeys } from "@/lib/queryKeys";
 import { invalidateFrameworkData, useDebouncedValue } from "@/hooks/useFrameworkData";
 import { useAcceptKpiSuggestion } from "@/hooks/useKpiSuggestions";
-import { httpStatusOf } from "@/lib/apiError";
+import { httpStatusOf, isProjectArchived } from "@/lib/apiError";
 import { acceptedToastText, indicatorNameIn, kpiErrorText, replaceableSource, requestErrorCode } from "@/lib/kpiSuggestions";
 import { cn, errorMessage } from "@/lib/utils";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -303,7 +303,9 @@ export function IndicatorForm({
     onError: (err) => {
       const message = errorMessage(err, t("indicatorForm.toast.saveFailed"));
       setServerError(message);
-      toast.error(t("indicatorForm.toast.saveFailed"));
+      // Archived elsewhere meanwhile: the page turns read-only and this form's dialog closes with it, so the toast
+      // must say why (not "check the message below").
+      toast.error(t(isProjectArchived(err) ? "errors.projectArchived" : "indicatorForm.toast.saveFailed"));
       requestAnimationFrame(() => summaryRef.current?.focus());
     },
   });

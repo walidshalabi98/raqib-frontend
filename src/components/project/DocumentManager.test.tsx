@@ -479,3 +479,22 @@ describe("DocumentManager: read only (donor viewers)", () => {
     expect(note.closest("section")).toHaveAttribute("dir", "rtl");
   });
 });
+
+describe("DocumentManager: archived project (staff, read-only)", () => {
+  it("shows staff the documents and their AI analysis, without the upload or the donor note", async () => {
+    vi.mocked(api.getDocuments).mockResolvedValue([makeDocument()]);
+    renderWithClient(<DocumentManager projectId="p-1" canManage={false} audience="staff" />);
+    expect(await screen.findByText("proposal.pdf")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload document" })).not.toBeInTheDocument();
+    expect(screen.getByText(AI_LABEL)).toBeInTheDocument();
+    expect(screen.queryByText(/You see proposals, logframes/)).not.toBeInTheDocument();
+  });
+
+  it("has an empty state that does not invite an upload", async () => {
+    vi.mocked(api.getDocuments).mockResolvedValue([]);
+    renderWithClient(<DocumentManager projectId="p-1" canManage={false} audience="staff" />);
+    expect(await screen.findByText("No documents in this project.")).toBeInTheDocument();
+    expect(screen.queryByText(/Upload a proposal/)).not.toBeInTheDocument();
+    expect(screen.queryByText("No documents have been shared yet.")).not.toBeInTheDocument();
+  });
+});

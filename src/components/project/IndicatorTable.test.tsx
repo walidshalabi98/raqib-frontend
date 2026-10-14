@@ -213,3 +213,38 @@ describe("IndicatorTable", () => {
     for (const edit of edits) expect(edit).toHaveAttribute("lang", "ar");
   });
 });
+
+describe("IndicatorTable read-only (donor viewers, archived projects)", () => {
+  it("shows the framework and results chain without any add, edit or delete control", async () => {
+    vi.mocked(api.getFramework).mockResolvedValue(framework("approved"));
+    renderWithClient(<IndicatorTable projectId="p-1" canEdit={false} />);
+    expect(await screen.findByText("% of households with acceptable FCS")).toBeInTheDocument();
+    expect(await screen.findByText("Reduced food insecurity")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add indicator" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /New Framework/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Edit indicator: / })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add result" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Add a result under / })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Edit (Goal|O1)/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Delete / })).not.toBeInTheDocument();
+  });
+
+  it("offers no framework creation when there is no framework", async () => {
+    vi.mocked(api.getFramework).mockResolvedValue(null);
+    renderWithClient(<IndicatorTable projectId="p-1" canEdit={false} />);
+    expect(await screen.findByText("No framework generated yet.")).toBeInTheDocument();
+    expect(screen.queryByText(/create a manual framework/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /New Framework/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps every control for staff on a project that is not archived (the default)", async () => {
+    vi.mocked(api.getFramework).mockResolvedValue(framework("draft"));
+    renderWithClient(<IndicatorTable projectId="p-1" />);
+    expect(await screen.findByRole("button", { name: "Add indicator" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /New Framework/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Edit indicator: / }).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("button", { name: "Add result" })).toBeInTheDocument();
+  });
+});
+

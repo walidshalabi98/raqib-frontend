@@ -15,6 +15,7 @@ import { PersonalDataWarning } from "@/components/common/PersonalDataWarning";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useRequestKpiSuggestions } from "@/hooks/useKpiSuggestions";
 import { kpiErrorText, requestErrorCode, requestErrorContext, runErrorCode } from "@/lib/kpiSuggestions";
+import { RequireWritableProject } from "@/components/RequireWritableProject";
 import type { Indicator } from "@/types/api";
 
 const steps = ["Upload Documents", "AI Processing", "Review Framework", "Summary"];
@@ -42,13 +43,26 @@ function frameworkTabPath(projectId: string): string {
 }
 
 /**
- * The AI KPI Builder: upload documents, generate a framework, review it and approve it. "Request alternative" on a
- * generated indicator asks the KPI Assistant for alternatives (knowledge/kpi-assistant-spec.md §A2 trigger 3; design
- * section 9.5): a toast says they are being prepared, with a link to the framework tab; errors are translated by code
- * (503 not configured, 422 not suggestable or nothing to suggest, 409 stale or already running, 429 rate limit or
- * budget). Roles without the assistant (donor viewers) do not get the button.
+ * The AI framework wizard (AI KPI Builder): upload documents, generate a framework, review it and approve it. It
+ * changes the project (uploads, framework generation, approvals, KPI alternatives), so an archived project sends the
+ * user back to its read-only page instead (RequireWritableProject). Kept here, in the page's own chunk, so the guard's
+ * translations stay out of the main bundle.
+ *
+ * "Request alternative" on a generated indicator asks the KPI Assistant for alternatives
+ * (knowledge/kpi-assistant-spec.md §A2 trigger 3; design section 9.5): a toast says they are being prepared, with a
+ * link to the framework tab; errors are translated by code (503 not configured, 422 not suggestable or nothing to
+ * suggest, 409 stale, already running or project archived, 429 rate limit or budget). Roles without the assistant
+ * (donor viewers) do not get the button.
  */
 export default function AIWizard() {
+  return (
+    <RequireWritableProject>
+      <AIWizardSteps />
+    </RequireWritableProject>
+  );
+}
+
+function AIWizardSteps() {
   const navigate = useNavigate();
   const { id: projectId } = useParams();
   const queryClient = useQueryClient();

@@ -153,8 +153,11 @@ function SourceCell({ indicator, lang }: { indicator: Indicator; lang: AppLangua
  * indicator itself is approved (table and timeline), and for org and platform admins an Approve button on unapproved
  * AI-made indicators in any framework status, and on every unapproved indicator once the framework is approved or
  * active (canApproveIndicator).
+ *
+ * `canEdit` (org staff on a project that is not archived) shows adding, editing, approving and creating a framework,
+ * and the results chain's controls; everyone else (donor viewers, an archived project) reads.
  */
-export function IndicatorTable({ projectId }: { projectId: string }) {
+export function IndicatorTable({ projectId, canEdit = true }: { projectId: string; canEdit?: boolean }) {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [view, setView] = useState<"table" | "timeline">("table");
@@ -210,11 +213,13 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
       <div className="space-y-4">
         <div className="card-surface p-8 text-center text-muted-foreground">
           <p>No framework generated yet.</p>
-          <p className="text-sm mt-1">Generate one with AI or create a manual framework.</p>
+          {canEdit && <p className="text-sm mt-1">Generate one with AI or create a manual framework.</p>}
         </div>
-        <div className="flex justify-center">
-          <CreateFrameworkDialog projectId={projectId} onCreated={refresh} />
-        </div>
+        {canEdit && (
+          <div className="flex justify-center">
+            <CreateFrameworkDialog projectId={projectId} onCreated={refresh} />
+          </div>
+        )}
       </div>
     );
   }
@@ -245,22 +250,26 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
             <button onClick={() => setView("table")} className={`px-3 py-1.5 text-xs font-medium ${view === "table" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Table</button>
             <button onClick={() => setView("timeline")} className={`px-3 py-1.5 text-xs font-medium ${view === "timeline" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Timeline</button>
           </div>
-          <IndicatorDialog
-            mode="create"
-            projectId={projectId}
-            frameworkId={framework.id}
-            resultNodes={resultNodes}
-            trigger={
-              <Button variant="outline" size="sm" lang={lang}>
-                <Plus aria-hidden="true" className="h-4 w-4 me-1.5" /> {t("indicatorTable.addIndicator")}
-              </Button>
-            }
-          />
-          <CreateFrameworkDialog projectId={projectId} onCreated={refresh} />
+          {canEdit && (
+            <>
+              <IndicatorDialog
+                mode="create"
+                projectId={projectId}
+                frameworkId={framework.id}
+                resultNodes={resultNodes}
+                trigger={
+                  <Button variant="outline" size="sm" lang={lang}>
+                    <Plus aria-hidden="true" className="h-4 w-4 me-1.5" /> {t("indicatorTable.addIndicator")}
+                  </Button>
+                }
+              />
+              <CreateFrameworkDialog projectId={projectId} onCreated={refresh} />
+            </>
+          )}
         </div>
       </div>
 
-      <ResultsChainPanel projectId={projectId} frameworkId={framework.id} indicators={indicators} />
+      <ResultsChainPanel projectId={projectId} frameworkId={framework.id} indicators={indicators} readOnly={!canEdit} />
 
       {/* Table View */}
       {view === "table" && (
@@ -278,7 +287,7 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                 <th className="text-left px-3 py-3 font-medium text-muted-foreground">Current</th>
                 <th className="text-left px-3 py-3 font-medium text-muted-foreground hidden lg:table-cell">Timeline</th>
                 <th className="text-center px-3 py-3 font-medium text-muted-foreground">Status</th>
-                <th className="text-center px-3 py-3 font-medium text-muted-foreground w-16">Edit</th>
+                {canEdit && <th className="text-center px-3 py-3 font-medium text-muted-foreground w-16">Edit</th>}
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -316,31 +325,33 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                       <TimelineBar ind={ind} />
                     </td>
                     <td className="px-3 py-3 text-center"><StatusDot status={ind.status} showLabel /></td>
-                    <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex flex-col items-center gap-1">
-                        {editButton(ind)}
-                        {canApproveIndicator(role, ind, framework.status) && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2"
-                            lang={lang}
-                            aria-label={t("indicatorTable.approveIndicator", { name: ind.indicatorText })}
-                            aria-disabled={approvingId ? "true" : undefined}
-                            onClick={() => { if (!approveMutation.isPending) approveMutation.mutate(ind); }}
-                          >
-                            {approvingId === ind.id
-                              ? <Loader2 aria-hidden="true" className="h-3 w-3 me-1 animate-spin" />
-                              : <BadgeCheck aria-hidden="true" className="h-3 w-3 me-1" />}
-                            {t("indicatorTable.approve")}
-                          </Button>
-                        )}
-                      </div>
-                    </td>
+                    {canEdit && (
+                      <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-col items-center gap-1">
+                          {editButton(ind)}
+                          {canApproveIndicator(role, ind, framework.status) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2"
+                              lang={lang}
+                              aria-label={t("indicatorTable.approveIndicator", { name: ind.indicatorText })}
+                              aria-disabled={approvingId ? "true" : undefined}
+                              onClick={() => { if (!approveMutation.isPending) approveMutation.mutate(ind); }}
+                            >
+                              {approvingId === ind.id
+                                ? <Loader2 aria-hidden="true" className="h-3 w-3 me-1 animate-spin" />
+                                : <BadgeCheck aria-hidden="true" className="h-3 w-3 me-1" />}
+                              {t("indicatorTable.approve")}
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                   {expanded === ind.id && (
                     <tr key={`${ind.id}-detail`}>
-                      <td colSpan={10} className="px-6 py-4 bg-secondary/20">
+                      <td colSpan={canEdit ? 10 : 9} className="px-6 py-4 bg-secondary/20">
                         <div className="grid md:grid-cols-2 gap-4">
                           <div className="space-y-2">
                             {ind.aiRationale && (
@@ -424,15 +435,17 @@ export function IndicatorTable({ projectId }: { projectId: string }) {
                   <div className="w-52 shrink-0">
                     <TimelineBar ind={ind} />
                   </div>
-                  <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-                    {editButton(ind)}
-                  </div>
+                  {canEdit && (
+                    <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                      {editButton(ind)}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
           {indicators.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-6">No indicators yet. Add one above.</p>
+            <p lang={lang} className="text-sm text-muted-foreground text-center py-6">{t(canEdit ? "indicatorTable.empty" : "indicatorTable.emptyReadOnly")}</p>
           )}
         </div>
       )}

@@ -17,6 +17,7 @@ import {
   KPI_RUN_STEPS_SHOWN,
   KPI_WARNING_CODES,
   PARSING_STATUSES,
+  PROJECT_STATUSES,
   QUALITY_BANDS,
   PROVENANCES,
   SECTORS,
@@ -48,6 +49,7 @@ describe("translations", () => {
       ["disaggregation", DISAGGREGATION_SUGGESTIONS],
       ["documentType", DOCUMENT_FILE_TYPES],
       ["parsingStatus", PARSING_STATUSES],
+      ["projectStatus", PROJECT_STATUSES],
       ["kpi.reject.reasons", KPI_REJECT_REASONS],
       ["kpi.quality", QUALITY_BANDS],
       ["kpi.progress.steps", KPI_RUN_STEPS_SHOWN],
@@ -69,6 +71,21 @@ describe("translations", () => {
     expect(en.donorType.usaid).toBe("USAID (legacy)");
     expect(DONOR_TYPES).toEqual(expect.arrayContaining(["echo", "wfp", "unfpa", "fcdo", "un_women"]));
     expect(DONOR_TYPES[DONOR_TYPES.length - 1]).toBe("usaid");
+  });
+
+  it("calls project documents وثيقة / وثائق in Arabic, as the Documents screens do (never مستند)", () => {
+    const entries = (obj: Record<string, unknown>, prefix = ""): Array<[string, string]> =>
+      Object.entries(obj).flatMap(([k, v]) =>
+        v && typeof v === "object" ? entries(v as Record<string, unknown>, `${prefix}${k}.`) : [[`${prefix}${k}`, String(v)] as [string, string]],
+      );
+    const arabic = new Map(entries(ar));
+    // A generic shared file (where to share a password), not a project document.
+    const generic = new Set(["settings.tempPassword.warningPrivate"]);
+    const aboutDocuments = entries(en).filter(([key, text]) => /document/i.test(text) && !generic.has(key));
+    expect(aboutDocuments.length).toBeGreaterThan(10);
+    for (const [key] of aboutDocuments) expect(arabic.get(key), key).not.toMatch(/مستند/);
+    expect(ar.projectDetail.tab.documents).toBe("الوثائق");
+    expect(ar.projectActions.deleteDialog.item.documents).toMatch(/^الوثائق/);
   });
 
   it("uses Arabic plural forms", () => {

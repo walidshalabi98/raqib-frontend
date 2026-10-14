@@ -9,7 +9,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ApiError } from "@/lib/apiError";
 import { renderWithClient } from "@/test/utils";
 import { makeAuthUser, makeKpiRun } from "@/test/fixtures";
-import type { Framework, UserRole } from "@/types/api";
+import type { Framework, ProjectDetail, UserRole } from "@/types/api";
 
 vi.mock("@/services/api", () => ({
   api: {
@@ -20,6 +20,7 @@ vi.mock("@/services/api", () => ({
     getFramework: vi.fn(),
     requestKpiSuggestions: vi.fn(),
     getKpiAssistantStatus: vi.fn(),
+    getProject: vi.fn(),
     getUser: vi.fn(() => null),
     getToken: vi.fn(() => null),
   },
@@ -36,6 +37,7 @@ function renderWizard() {
     <MemoryRouter initialEntries={["/projects/p-1/wizard"]}>
       <Routes>
         <Route path="/projects/:id/wizard" element={<AIWizard />} />
+        <Route path="/projects/:id" element={<p>Project page</p>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -45,6 +47,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.getUser).mockReturnValue(null);
   vi.mocked(api.getDocuments).mockResolvedValue([]);
+  vi.mocked(api.getProject).mockResolvedValue({ id: "p-1", status: "setup" } as ProjectDetail);
   vi.mocked(api.generateFramework).mockResolvedValue({ frameworkId: "fw-2", status: "processing" });
 });
 
@@ -236,3 +239,12 @@ describe("AIWizard alternatives (KPI Assistant, design 9.5)", () => {
   });
 });
 
+describe("AIWizard on an archived project", () => {
+  it("sends the user back to the read-only project page without loading or changing anything", async () => {
+    vi.mocked(api.getProject).mockResolvedValue({ id: "p-1", status: "archived" } as ProjectDetail);
+    renderWizard();
+    expect(await screen.findByText("Project page")).toBeInTheDocument();
+    expect(api.getDocuments).not.toHaveBeenCalled();
+    expect(api.generateFramework).not.toHaveBeenCalled();
+  });
+});

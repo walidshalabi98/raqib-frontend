@@ -12,7 +12,8 @@
     "refresh": "Refresh"
   },
   "errors": {
-    "forbidden": "You don't have permission to do this. Ask your organisation's admin if you need access."
+    "forbidden": "You don't have permission to do this. Ask your organisation's admin if you need access.",
+    "projectArchived": "This project is archived, so it is read-only. An organisation admin can restore it to make changes."
   },
   "access": {
     "readOnlyBanner": "You have read-only access to this project. Project staff add and change its data.",
@@ -135,7 +136,24 @@
     "noData": "There is no data to export yet."
   },
   "projectDetail": {
-    "backToProjects": "Back to projects"
+    "backToProjects": "Back to projects",
+    "sections": "Project sections",
+    "tab": {
+      "overview": "Overview",
+      "me-framework": "M&E Framework",
+      "dashboard": "Dashboard",
+      "risks": "Risk Alerts",
+      "assessments": "Assessments",
+      "reports": "Reports",
+      "documents": "Documents",
+      "qualitative": "Qualitative",
+      "export": "Export"
+    },
+    "archivedTitle": "This project is archived.",
+    "archivedBody": "It is read-only: no one can add or change its data, and nothing in it was deleted.",
+    "archivedAskAdmin": "An organisation admin can restore it.",
+    "timelineArchived": "Archived: the timeline shows no current stage while the project is archived.",
+    "loadError": "We couldn't load this project. It may have been deleted, or the connection dropped."
   },
   "layout": {
     "openMenu": "Open the navigation menu",
@@ -454,12 +472,15 @@
       "deleted": "Result deleted",
       "saveFailed": "We couldn't save the result.",
       "deleteFailed": "We couldn't delete the result."
-    }
+    },
+    "emptyReadOnly": "No results chain yet."
   },
   "indicatorTable": {
     "addIndicator": "Add indicator",
     "edit": "Edit",
     "editIndicator": "Edit indicator: {{name}}",
+    "empty": "No indicators yet. Add one above.",
+    "emptyReadOnly": "No indicators yet.",
     "source": "Source",
     "approve": "Approve",
     "approveIndicator": "Approve {{name}}",
@@ -476,7 +497,26 @@
     "viewGrid": "Show as cards",
     "viewList": "Show as a list",
     "search": "Search projects",
-    "searchPlaceholder": "Search projects…"
+    "searchPlaceholder": "Search projects…",
+    "title": "Projects",
+    "views": "Which projects to show",
+    "viewActive": "Active projects",
+    "viewArchived": "Archived projects",
+    "allStatuses": "All statuses",
+    "archivedNote": "Archived projects are read-only and nothing in them was deleted. Open one to read it; an organisation admin can restore it.",
+    "emptyActive": "No active projects yet. Your organisation's admin creates projects.",
+    "emptyActiveAdmin": "No active projects yet. Create one with New project.",
+    "emptyArchived": "No archived projects. When an organisation admin archives a project, it moves here, read-only, and can be restored.",
+    "noMatches": "No projects match your search or filters.",
+    "loading": "Loading projects…",
+    "loadError": "We couldn't load the projects.",
+    "column": {
+      "project": "Project",
+      "sector": "Sector",
+      "donor": "Donor",
+      "status": "Status"
+    },
+    "deleted": "“{{name}}” and everything in it were deleted permanently."
   },
   "reportType": {
     "assessment_report": "Assessment report",
@@ -684,7 +724,8 @@
     "toast": {
       "uploaded": "Document uploaded. Raqib is reading it now.",
       "uploadFailed": "We couldn't upload the document."
-    }
+    },
+    "emptyNoUpload": "No documents in this project."
   },
   "assessments": {
     "failedTitle": "AI generation failed"
@@ -697,6 +738,239 @@
   },
   "frameworkGeneration": {
     "failedTitle": "Framework generation failed"
+  },
+  "roles": {
+    "platform_admin": "Platform admin",
+    "org_admin": "Organisation admin",
+    "me_officer": "M&E officer",
+    "donor_viewer": "Donor viewer"
+  },
+  "auth": {
+    "signIn": {
+      "title": "Sign in",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Sign in",
+      "submitting": "Signing in…",
+      "forgot": "Forgot password?",
+      "required": "Enter your email and password.",
+      "invalid": "The email or password is not correct. Check both and try again.",
+      "tooManyAttempts": "Too many sign-in attempts. Wait 15 minutes and try again.",
+      "offline": "We couldn't reach Raqib. Check your connection and try again.",
+      "failed": "We couldn't sign you in. Try again in a few minutes.",
+      "passwordReset": "Your password has been changed. Sign in with your new password."
+    },
+    "forgot": {
+      "title": "Reset your password",
+      "intro": "Enter the email you sign in with. If it belongs to an account, we will send it a link to set a new password.",
+      "email": "Email",
+      "submit": "Send reset link",
+      "submitting": "Sending…",
+      "emailRequired": "Enter your email.",
+      "sent": "If an account exists for this email, we have sent it a link to set a new password.",
+      "askAdmin": "No email? Ask your organisation's admin to reset your password in Settings.",
+      "unavailable": "Password reset by email isn't available yet. Ask your organisation's admin to reset your password in Settings.",
+      "back": "Back to sign in"
+    }
+  },
+  "resetPassword": {
+    "title": "Set a new password",
+    "intro": "Choose a new password for your Raqib account.",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm new password",
+    "submit": "Save new password",
+    "submitting": "Saving…",
+    "invalidTitle": "This link can't be used",
+    "invalidBody": "The password reset link is invalid, has expired or was already used. Request a new link, or ask your organisation's admin to reset your password.",
+    "requestNew": "Request a new link",
+    "backToSignIn": "Back to sign in"
+  },
+  "password": {
+    "policyTitle": "Your new password must:",
+    "ruleLength": "have at least {{min}} characters",
+    "ruleDifferent": "be different from your current password",
+    "ruleEmail": "not include your email name (the part before @)",
+    "ruleSimple": "use at least {{distinct}} different characters",
+    "ruleCommon": "not be a common password, and not include Raqib or your organisation's name",
+    "errors": {
+      "summary": "Check the highlighted fields.",
+      "currentRequired": "Enter your current password.",
+      "newRequired": "Enter a new password.",
+      "tooShort": "Use at least {{min}} characters.",
+      "tooLong": "Use at most {{max}} characters.",
+      "sameAsCurrent": "Choose a password that is different from your current one.",
+      "containsEmailName": "Don't include your email name (the part before @) in the password.",
+      "tooSimple": "Use at least {{distinct}} different characters.",
+      "tooCommon": "This password is too easy to guess. Don't use a common password, Raqib or your organisation's name.",
+      "confirmRequired": "Enter the new password again.",
+      "mismatch": "The passwords don't match. Enter the same new password twice.",
+      "currentWrong": "Your current password is not correct.",
+      "changedMeanwhile": "Your password was changed in the meantime. Sign out, sign in with the new password and try again.",
+      "invalidLink": "This reset link is invalid, has expired or was already used.",
+      "tooManyAttempts": "Too many attempts. Wait 15 minutes and try again.",
+      "offline": "We couldn't reach Raqib. Check your connection and try again.",
+      "failed": "We couldn't save the new password. Try again in a few minutes."
+    },
+    "show": "Show password"
+  },
+  "settings": {
+    "title": "Settings",
+    "organisation": {
+      "heading": "Organisation",
+      "name": "Organisation name",
+      "contactEmail": "Contact email",
+      "logo": "Logo",
+      "logoUpload": "Click to upload logo",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "saved": "Organisation updated.",
+      "saveFailed": "We couldn't update the organisation."
+    },
+    "changePassword": {
+      "heading": "Change password",
+      "intro": "Change the password you use to sign in to Raqib.",
+      "current": "Current password",
+      "new": "New password",
+      "confirm": "Confirm new password",
+      "submit": "Change password",
+      "submitting": "Changing…",
+      "success": "Your password has been changed."
+    },
+    "team": {
+      "heading": "Team members",
+      "invite": "Invite user",
+      "loadError": "We couldn't load the team members.",
+      "empty": "No team members yet. Invite the people who work on your projects.",
+      "name": "Name",
+      "role": "Role",
+      "actions": "Actions",
+      "you": "(you)",
+      "resetPassword": "Reset password",
+      "resetPasswordFor": "Reset password for {{name}}"
+    },
+    "invite": {
+      "title": "Invite user",
+      "description": "They receive an email with a link to choose their password.",
+      "descriptionNoEmail": "You'll see a temporary password once, to give to them privately. They change it after signing in.",
+      "fullName": "Full name",
+      "email": "Email",
+      "role": "Role",
+      "submit": "Invite",
+      "submitting": "Inviting…",
+      "emailSent": "{{name}} was invited. We emailed them a link to choose their password.",
+      "noPassword": "{{name}} was added, but we couldn't send them an email. Reset their password to get a temporary password for them.",
+      "failed": "We couldn't invite this user. Try again in a few minutes.",
+      "errors": {
+        "summary": "Check the highlighted fields.",
+        "nameRequired": "Enter the user's full name.",
+        "emailRequired": "Enter the user's email.",
+        "emailInvalid": "Enter an email address such as name@example.org.",
+        "exists": "A user with this email already exists."
+      }
+    },
+    "resetUser": {
+      "title": "Reset the password of {{name}}?",
+      "body": "Their current password stops working straight away, and Raqib emails them a link to choose a new one.",
+      "bodyNoEmail": "Their current password stops working straight away, and Raqib creates a new temporary password for them to sign in with and then change.",
+      "confirm": "Reset password",
+      "submitting": "Resetting…",
+      "emailSent": "We emailed {{name}} a link to choose a new password.",
+      "noPassword": "The password of {{name}} was reset, but we couldn't send them an email. Reset it again in a few minutes.",
+      "failed": "We couldn't reset this password. Try again in a few minutes."
+    },
+    "tempPassword": {
+      "titleInvite": "{{name}} was added",
+      "titleReset": "New password for {{name}}",
+      "intro": "Give {{name}} this temporary password. They sign in with {{email}}.",
+      "emailFailed": "The email could not be sent, so give them this password yourself.",
+      "label": "Temporary password",
+      "copy": "Copy password",
+      "copied": "Password copied.",
+      "copyFailed": "Copying didn't work. Select the password and copy it yourself.",
+      "grouped": "In groups of four, for reading aloud:",
+      "warningTitle": "Shown only once",
+      "warningOnce": "You can't see this password again after you close this window.",
+      "warningPrivate": "Share it privately, for example in person or by phone, not in a group chat or a shared document.",
+      "warningChange": "Ask them to change it after signing in, in Settings → Change password.",
+      "done": "Done",
+      "closeConfirm": "Close without copying the password? You can't see it again.",
+      "goBack": "Go back",
+      "closeAnyway": "Close anyway"
+    },
+    "notifications": {
+      "heading": "Notification preferences",
+      "offTrack": "Indicator off-track alerts",
+      "assessment": "Assessment status updates",
+      "report": "Report generation notifications",
+      "digest": "Team activity digest"
+    }
+  },
+  "projectStatus": {
+    "setup": "Setup",
+    "framework_review": "Framework review",
+    "active": "Active",
+    "completed": "Completed",
+    "archived": "Archived"
+  },
+  "projectActions": {
+    "menu": "Project actions",
+    "archive": "Archive project",
+    "restore": "Restore project",
+    "restoring": "Restoring…",
+    "delete": "Delete permanently",
+    "toast": {
+      "archived": "“{{name}}” is archived. It is read-only until it is restored.",
+      "restored": "“{{name}}” is restored. You can make changes again."
+    },
+    "errors": {
+      "notFound": "This project no longer exists. It may have been deleted already.",
+      "notArchived": "This project is not archived any more.",
+      "restoreFailed": "We couldn't restore the project. Try again."
+    },
+    "archiveDialog": {
+      "title": "Archive “{{name}}”?",
+      "intro": "Archive projects that have ended. Donors may audit them for years, so nothing is deleted.",
+      "pointHidden": "It leaves the active projects list and appears under Archived projects.",
+      "pointReadOnly": "It becomes read-only for everyone: no new data, documents or reports, and no changes.",
+      "pointKept": "Nothing is deleted: its framework, data, documents and reports stay as they are.",
+      "pointRestore": "An organisation admin can restore it at any time.",
+      "confirm": "Archive project",
+      "pending": "Archiving…",
+      "errors": {
+        "alreadyArchived": "This project is already archived.",
+        "failed": "We couldn't archive the project. Try again."
+      }
+    },
+    "deleteDialog": {
+      "title": "Delete “{{name}}” permanently?",
+      "warning": "This cannot be undone. The project and everything in it will be deleted for good, document files included.",
+      "advice": "Delete only test projects or projects created by mistake. Archive real projects instead: donors may audit them for years.",
+      "archiveInstead": "Archive instead",
+      "listTitle": "What will be deleted",
+      "count": "{{label}}: {{count}}",
+      "item": {
+        "framework": "The M&E framework (all versions) and its results chain",
+        "indicators": "Indicators in the current framework",
+        "dataPoints": "Data points",
+        "qualitativeEntries": "Qualitative entries",
+        "assessments": "Assessments",
+        "reports": "Reports, published ones included",
+        "documents": "Documents and their stored files",
+        "beneficiaries": "Beneficiary records and the services recorded for them",
+        "notifications": "Notifications about this project"
+      },
+      "auditNote": "Raqib records the deletion in the audit log: who deleted the project, when, and how much was removed.",
+      "nameToType": "Project name:",
+      "nameLabel": "Type the project name to confirm",
+      "nameHint": "Type it exactly as shown, capital letters included. The delete button turns on when the name matches.",
+      "matches": "The name matches. You can delete the project.",
+      "confirm": "Delete permanently",
+      "pending": "Deleting…",
+      "errors": {
+        "mismatch": "The name you typed does not match the project name. Type it exactly as shown.",
+        "failed": "We couldn't delete the project. Try again."
+      }
+    }
   },
   "kpi": {
     "suggest": "Suggest KPIs",
