@@ -261,6 +261,42 @@ export interface ProjectInput {
 /** PATCH /api/projects/:id: any subset of the create fields, plus `status`. */
 export type ProjectUpdateInput = Partial<ProjectInput> & { status?: ProjectStatus };
 
+/**
+ * GET /api/projects: `archived: true` lists archived projects only (`?archived=true`); otherwise archived
+ * projects are left out (owner decision of 13 October 2026).
+ */
+export interface ProjectListOptions {
+  archived?: boolean;
+}
+
+/** What DELETE /api/projects/:id removed, per table (the audit row keeps the same counts). */
+export interface ProjectRemovedCounts {
+  frameworks: number;
+  resultNodes: number;
+  indicators: number;
+  assessments: number;
+  dataPoints: number;
+  qualitativeEntries: number;
+  beneficiaries: number;
+  beneficiaryServices: number;
+  reports: number;
+  documents: number;
+  notifications: number;
+  /** Document files removed from storage after the database transaction. */
+  storageFilesRemoved: number;
+  /** Document files storage could not remove (logged by document id on the server; the request still succeeds). */
+  storageFilesFailed: number;
+}
+
+/**
+ * DELETE /api/projects/:id → 200: the project and everything that belongs to it are gone for good.
+ * Org admins and platform admins only; the body must carry the project's exact name (`confirmName`).
+ */
+export interface ProjectDeleteResponse {
+  deleted: true;
+  removed: ProjectRemovedCounts;
+}
+
 // -------------------------------------------------- frameworks and results
 
 /** A results-chain node: impact → outcome → output → activity. */

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { api } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,7 +23,7 @@ export function TopBar() {
   const queryClient = useQueryClient();
 
   const { data: notifications = [] } = useQuery({
-    queryKey: ['notifications'],
+    queryKey: queryKeys.notifications,
     queryFn: () => api.getNotifications(),
   });
 
@@ -31,7 +32,7 @@ export function TopBar() {
 
   const markAllRead = async () => {
     await api.markAllNotificationsRead();
-    queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
   };
 
   return (

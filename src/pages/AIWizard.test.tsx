@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import AIWizard from "@/pages/AIWizard";
 import { api } from "@/services/api";
 import { renderWithClient } from "@/test/utils";
-import type { Framework } from "@/types/api";
+import type { Framework, ProjectDetail } from "@/types/api";
 
 vi.mock("@/services/api", () => ({
   api: {
@@ -15,6 +15,7 @@ vi.mock("@/services/api", () => ({
     generateFramework: vi.fn(),
     checkGenerationStatus: vi.fn(),
     getFramework: vi.fn(),
+    getProject: vi.fn(),
     getUser: vi.fn(() => null),
     getToken: vi.fn(() => null),
   },
@@ -31,6 +32,7 @@ function renderWizard() {
     <MemoryRouter initialEntries={["/projects/p-1/wizard"]}>
       <Routes>
         <Route path="/projects/:id/wizard" element={<AIWizard />} />
+        <Route path="/projects/:id" element={<p>Project page</p>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -40,6 +42,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.getUser).mockReturnValue(null);
   vi.mocked(api.getDocuments).mockResolvedValue([]);
+  vi.mocked(api.getProject).mockResolvedValue({ id: "p-1", status: "setup" } as ProjectDetail);
   vi.mocked(api.generateFramework).mockResolvedValue({ frameworkId: "fw-2", status: "processing" });
 });
 
@@ -102,5 +105,15 @@ describe("AIWizard framework generation", () => {
     const input = document.querySelector('input[type="file"]');
     expect(input).toHaveAttribute("accept", ".pdf,.docx,.xlsx");
     expect(input).toHaveAttribute("aria-describedby", warning.parentElement?.id);
+  });
+});
+
+describe("AIWizard on an archived project", () => {
+  it("sends the user back to the read-only project page without loading or changing anything", async () => {
+    vi.mocked(api.getProject).mockResolvedValue({ id: "p-1", status: "archived" } as ProjectDetail);
+    renderWizard();
+    expect(await screen.findByText("Project page")).toBeInTheDocument();
+    expect(api.getDocuments).not.toHaveBeenCalled();
+    expect(api.generateFramework).not.toHaveBeenCalled();
   });
 });

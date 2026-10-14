@@ -441,6 +441,19 @@ describe("IndicatorForm", { timeout: 20_000 }, () => {
     expect(toast.error).toHaveBeenCalledWith("We couldn't save the indicator. Check the message below and try again.");
   });
 
+  it("says why in the toast when a save is refused because the project was archived meanwhile", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.addIndicatorToFramework).mockRejectedValue(new ApiError("This project is archived. Restore it to make changes.", 409, "project_archived"));
+    renderForm();
+    await user.type(screen.getByLabelText(/^Indicator name \(English\)/), "Trainees");
+    await user.click(screen.getByRole("button", { name: "Add indicator" }));
+    // The page turns read-only and the dialog closes, so "check the message below" would point at nothing.
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "This project is archived, so it is read-only. An organisation admin can restore it to make changes.",
+    ));
+    expect(toast.error).not.toHaveBeenCalledWith(expect.stringMatching(/Check the message below/));
+  });
+
   it("renders right-to-left with Arabic labels in Arabic", () => {
     const { container } = renderForm({ lang: "ar" });
     const form = container.querySelector("form");

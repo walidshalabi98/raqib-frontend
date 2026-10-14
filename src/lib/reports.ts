@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import { httpStatusOf } from "@/lib/apiError";
+import { httpStatusOf, isProjectArchived } from "@/lib/apiError";
 import type { ReportStatus } from "@/types/api";
 
 /**
@@ -33,9 +33,11 @@ export function isFinishedReport(report: { fileUrl?: unknown; aiNarrative?: unkn
 
 /**
  * The translation key for a failed publish or unpublish: the server's answer in the user's language, never
- * its English message. 403 (the role changed), 404 (the report was deleted), 409 (not finished).
+ * its English message. 403 (the role changed), 404 (the report was deleted), 409 (not finished, or the
+ * project was archived meanwhile: archived projects are read-only).
  */
 export function publicationErrorKey(err: unknown, publish: boolean): string {
+  if (isProjectArchived(err)) return "errors.projectArchived";
   switch (httpStatusOf(err)) {
     case 403:
       return "errors.forbidden";

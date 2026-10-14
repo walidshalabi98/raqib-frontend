@@ -3,15 +3,14 @@ import { Link } from "react-router-dom";
 import { api } from "@/services/api";
 import { AssessmentModal } from "@/components/project/AssessmentModal";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useProjectList } from "@/hooks/useProjects";
 import { Loader2, ClipboardCheck } from "lucide-react";
 
 export default function Assessments() {
   // Requesting an assessment is for org staff; donor viewers only see the list (the server refuses them too).
   const canRequest = usePermissions().can("assessment.request");
-  const { data: projects, isLoading } = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => api.getProjects(),
-  });
+  // Active projects only: archived ones are read-only (the API leaves them out of this list).
+  const { data: projects, isLoading } = useProjectList();
 
   if (isLoading) {
     return (

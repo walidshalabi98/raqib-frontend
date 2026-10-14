@@ -115,4 +115,16 @@ describe("AssessmentPipeline", () => {
     expect(await screen.findByRole("button", { name: /View Report/ })).toBeInTheDocument();
     expect(screen.queryByText(/Project staff review the AI report first/)).not.toBeInTheDocument();
   });
+
+  it("does not invite a request on an archived project, and keeps the report for staff", async () => {
+    vi.mocked(api.getAssessments).mockResolvedValue([]);
+    const { unmount } = renderWithClient(<AssessmentPipeline projectId="p-1" canRequest={false} />);
+    expect(await screen.findByText("No assessments yet.")).toBeInTheDocument();
+    expect(screen.queryByText(/Request an assessment/)).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(api.getAssessments).mockResolvedValue([{ id: "a-2", type: "baseline", status: "delivered", methodsIncluded: [], requestedAt: ago(86_400_000) }]);
+    renderWithClient(<AssessmentPipeline projectId="p-1" canRequest={false} />);
+    expect(await screen.findByRole("button", { name: /View Report/ })).toBeInTheDocument();
+  });
 });

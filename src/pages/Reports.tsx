@@ -9,6 +9,7 @@ import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { isForbidden } from "@/lib/apiError";
 import { isolate } from "@/lib/reports";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useProjectList } from "@/hooks/useProjects";
 import { Button } from "@/components/ui/button";
 import { ReportsList } from "@/components/project/ReportsList";
 import type { Project } from "@/types/api";
@@ -25,10 +26,8 @@ export default function Reports() {
   const { t } = useTranslation(undefined, { lng: lang });
   const staff = can("report.generate");
 
-  const { data: projects = [], isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => api.getProjects(),
-  });
+  // Active projects (archived ones are read-only and left out by the API; their reports stay in the project page).
+  const { data: projects = [], isLoading, isError, error, refetch } = useProjectList();
 
   return (
     <div lang={lang} dir={dir} className="space-y-5 animate-fade-in">

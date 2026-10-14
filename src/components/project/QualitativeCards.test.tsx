@@ -311,3 +311,23 @@ describe("QualitativeCards: AI coding for staff", () => {
     expect(screen.queryByText("No qualitative data entries yet.")).not.toBeInTheDocument();
   });
 });
+
+describe("QualitativeCards: archived project (staff, read-only)", () => {
+  it("keeps the staff view of the entries but offers no adding, uploading or AI coding", async () => {
+    vi.mocked(api.getQualitativeEntries).mockResolvedValue([{ ...savedEntry(), content: "Full notes of the discussion." }]);
+    const user = userEvent.setup({ delay: null });
+    renderWithClient(<QualitativeCards projectId="p-1" canManage={false} />);
+    expect(await screen.findByText("FGD with women farmers")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add Entry" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /AI Analyze/ })).not.toBeInTheDocument();
+    await user.click(screen.getByText("FGD with women farmers"));
+    expect(await screen.findByText("Full notes of the discussion.")).toBeInTheDocument();
+  });
+
+  it("does not invite new entries when there are none", async () => {
+    vi.mocked(api.getQualitativeEntries).mockResolvedValue([]);
+    renderWithClient(<QualitativeCards projectId="p-1" canManage={false} />);
+    expect(await screen.findByText("No qualitative data entries yet.")).toBeInTheDocument();
+    expect(screen.queryByText(/Add interview transcripts/)).not.toBeInTheDocument();
+  });
+});

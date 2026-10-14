@@ -5,6 +5,7 @@ import { api } from "@/services/api";
 import { dirFor } from "@/i18n";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useProjectList } from "@/hooks/useProjects";
 import { BeneficiarySummary } from "@/components/beneficiaries/BeneficiarySummary";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,10 +45,8 @@ export default function Beneficiaries() {
   });
   const queryClient = useQueryClient();
 
-  const { data: projects = [] } = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => api.getProjects(),
-  });
+  // Active projects only: archived ones are read-only (the API leaves them out of this list).
+  const { data: projects = [] } = useProjectList();
 
   const { data: benefData, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["beneficiaries", selectedProject],

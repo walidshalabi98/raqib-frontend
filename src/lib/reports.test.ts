@@ -30,6 +30,12 @@ describe("publicationErrorKey", () => {
     expect(publicationErrorKey(new ApiError("Internal server error", 500), true)).toBe("reports.errors.publishFailed");
     expect(publicationErrorKey(new Error("Failed to fetch"), false)).toBe("reports.errors.unpublishFailed");
   });
+
+  it("says the project is archived when that is why the server refused (409 project_archived)", () => {
+    const archived = new ApiError("This project is archived. Restore it to make changes.", 409, "project_archived");
+    expect(publicationErrorKey(archived, true)).toBe("errors.projectArchived");
+    expect(publicationErrorKey(archived, false)).toBe("errors.projectArchived");
+  });
 });
 
 describe("reportFrameDocument", () => {
