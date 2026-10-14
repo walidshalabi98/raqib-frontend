@@ -8,10 +8,17 @@ import type {
   IndicatorLevel,
   IndicatorProvenance,
   IndicatorStatus,
+  KpiErrorCode,
+  KpiRequestErrorCode,
+  KpiRunStep,
+  KpiWarningCode,
   ParsingStatus,
   ProjectStatus,
+  QualityBand,
   ReportType,
   Sector,
+  SuggestableLevel,
+  SuggestionRejectReason,
 } from "@/types/api";
 import en from "@/i18n/en.json";
 
@@ -162,3 +169,62 @@ export const METHOD_LABELS: Record<CollectionMethod, string> = en.methodShort;
 
 /** English sector labels for untranslated screens. */
 export const SECTOR_LABELS: Record<Sector, string> = en.sector;
+
+// ------------------------------------------------------- KPI Assistant (Phase 4)
+
+/**
+ * Reject reasons in chip order (Prisma enum SuggestionRejectReason; knowledge/kpi-assistant-spec.md §A5, §A7).
+ * What each one excludes is REJECTION_SCOPE in src/lib/kpiSuggestions.ts (design D9).
+ */
+export const KPI_REJECT_REASONS = [
+  "not_relevant",
+  "too_costly_to_measure",
+  "donor_not_required",
+  "duplicate",
+  "wording",
+  "other",
+] as const satisfies readonly SuggestionRejectReason[];
+
+/** Quality bands, best first (spec §A4 step 3: ≥ 85 strong, 65–84 review, < 65 weak). */
+export const QUALITY_BANDS = ["strong", "review", "weak"] as const satisfies readonly QualityBand[];
+
+/** Run steps shown as named progress steps (design 9.4); `saving` and `done` show every step done. */
+export const KPI_RUN_STEPS_SHOWN = ["context", "retrieval", "model", "validation"] as const satisfies readonly KpiRunStep[];
+
+/** Result levels the KPI Assistant suggests indicators for (spec §A2: never activities). */
+export const SUGGESTABLE_LEVELS = ["impact", "outcome", "output"] as const satisfies readonly SuggestableLevel[];
+
+/** Model confidence of a suggestion, highest first (spec §A4 output schema). */
+export const KPI_CONFIDENCE_LEVELS = ["high", "medium", "low"] as const;
+
+/**
+ * Validation note codes, mirror of KPI_WARNING_CODES in raqib-backend src/services/kpi/types.ts (same order):
+ * per suggestion, framework (run) level, then the accept response's donor_cap_exceeded. Translated as kpi.warnings.<code>.
+ */
+export const KPI_WARNING_CODES = [
+  // per suggestion
+  "library_id_unknown", "custom_reason_missing", "target_in_name", "double_barrelled", "percent_without_calculation",
+  "sex_keys_from_library", "sex_added", "baseline_not_found", "target_not_found", "standard_threshold_not_found",
+  "target_method_default", "output_survey_method", "impact_not_secondary", "arabic_name_missing",
+  "generic_means_of_verification", "figures_unverified", "level_adjusted", "arabic_name_from_library", "level_mismatch_library",
+  // framework (run) level
+  "model_note", "unknown_result", "rejected_library_dropped", "duplicate_in_run", "near_duplicate", "result_cap",
+  "accountability_added", "accountability_missing", "result_failed", "result_empty", "keyword_fallback",
+  // accept response (not stored on a suggestion)
+  "donor_cap_exceeded",
+] as const satisfies readonly KpiWarningCode[];
+
+/**
+ * Error codes the KPI UI translates (kpi.errors.<code>; design 9.2): the run codes (KpiRun.errorCode) and the request
+ * codes (ApiError.code of the KPI routes; rate_limited also for a 429 without a code; conflict from any write route
+ * when a simultaneous change won). Never shown raw.
+ */
+export const KPI_ERROR_CODES_SHOWN = [
+  // run (KpiRun.errorCode)
+  "ai_not_configured", "ai_refused", "ai_unavailable", "ai_invalid_output", "interrupted", "stale", "internal",
+  // request (ApiError.code / HTTP status)
+  "run_in_progress", "rate_limited", "already_decided", "not_suggestable", "no_framework", "nothing_to_suggest",
+  "too_many_results", "budget_reached", "project_archived", "duplicate", "source_has_data", "not_editable", "conflict",
+] as const satisfies readonly (KpiErrorCode | KpiRequestErrorCode | "rate_limited" | "conflict")[];
+
+export type KpiShownErrorCode = (typeof KPI_ERROR_CODES_SHOWN)[number];

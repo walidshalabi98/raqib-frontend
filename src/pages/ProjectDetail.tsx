@@ -8,6 +8,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useProjectAccess } from "@/hooks/useProjectAccess";
 import { invalidateProjectViews, useProject, useRestoreProject } from "@/hooks/useProjects";
 import { SECTOR_LABELS } from "@/lib/constants";
+import { PROJECT_TAB_VALUES, projectTabFrom, type ProjectTab } from "@/lib/projectTabs";
 import { onProjectArchivedRefusal } from "@/lib/projectEvents";
 import { queryKeys } from "@/lib/queryKeys";
 import { restoreErrorKey } from "@/lib/projectLifecycle";
@@ -52,10 +53,11 @@ class MapErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
 
 const timelineStages = ["Setup", "Baseline", "Implementation", "Midterm", "Endline", "Complete"];
 
-/** The project page's tabs, in order. `?tab=<value>` opens one (links from the Reports page and notifications). */
-const PROJECT_TABS = ["overview", "me-framework", "dashboard", "risks", "assessments", "reports", "documents", "qualitative", "export"] as const;
-type ProjectTab = (typeof PROJECT_TABS)[number];
-const isProjectTab = (value: string | null): value is ProjectTab => (PROJECT_TABS as readonly (string | null)[]).includes(value);
+/**
+ * The project page's tabs are PROJECT_TAB_VALUES (src/lib/projectTabs.ts). `?tab=<value>` opens one (links from the
+ * Reports page, notifications and the AI Wizard's "Open the framework" action).
+ */
+const isProjectTab = (value: string | null): value is ProjectTab => (PROJECT_TAB_VALUES as readonly (string | null)[]).includes(value);
 
 /**
  * The timeline stage a status stands for. None (-1) for an archived project: any project can be archived, from
@@ -89,8 +91,7 @@ export default function ProjectDetail() {
   const headingId = useId();
   const archivedBannerId = useId();
   const [searchParams, setSearchParams] = useSearchParams();
-  const requestedTab = searchParams.get("tab");
-  const tab: ProjectTab = isProjectTab(requestedTab) ? requestedTab : "overview";
+  const tab: ProjectTab = projectTabFrom(searchParams.get("tab"));
   // The open tab is in the address, so it can be linked to and survives a reload; switching replaces the entry.
   const selectTab = (value: string) => {
     if (!isProjectTab(value)) return;
@@ -224,7 +225,7 @@ export default function ProjectDetail() {
 
       <Tabs value={tab} onValueChange={selectTab} className="w-full">
         <TabsList aria-label={t("projectDetail.sections")} lang={lang} className="w-full justify-start overflow-x-auto bg-transparent border-b rounded-none h-auto p-0 gap-0">
-          {PROJECT_TABS.map((value) => (
+          {PROJECT_TAB_VALUES.map((value) => (
             <TabsTrigger
               key={value}
               value={value}

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/services/api";
 import { ApiError, errorCodeOf, httpStatusOf, isProjectArchived } from "@/lib/apiError";
 import { onProjectArchivedRefusal } from "@/lib/projectEvents";
+import type { ProjectRemovedCounts } from "@/types/api";
 
 // The real API client against a stubbed fetch: the archive, restore and delete contract (backend
 // DELETE /api/projects/:id and POST /api/projects/:id/archive and /restore; owner decision of 13 October 2026).
@@ -91,10 +92,13 @@ describe("archive and restore", () => {
 
 describe("delete permanently", () => {
   it("sends DELETE /api/projects/:id with the typed name as JSON", async () => {
+    // Every count the backend answers (deleteProjectRows, docs/DATA_MODEL.md §5), the KPI Assistant's included:
+    // `satisfies` fails the typecheck when a key is missing from the type or from here.
     const removed = {
       frameworks: 1, resultNodes: 4, indicators: 6, assessments: 1, dataPoints: 30, qualitativeEntries: 2, beneficiaries: 12,
-      beneficiaryServices: 20, reports: 2, documents: 3, notifications: 5, storageFilesRemoved: 3, storageFilesFailed: 0,
-    };
+      beneficiaryServices: 20, reports: 2, documents: 3, notifications: 5, kpiSuggestions: 9, kpiSuggestionRuns: 3,
+      storageFilesRemoved: 3, storageFilesFailed: 0,
+    } satisfies ProjectRemovedCounts;
     fetchMock.mockResolvedValueOnce(json(200, { deleted: true, removed }));
     const result = await api.deleteProject("p-1", "Gaza water trucking");
     const request = onlyRequest();

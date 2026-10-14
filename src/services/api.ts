@@ -11,7 +11,13 @@ import type {
   Indicator,
   IndicatorDataResponse,
   IndicatorInput,
+  IndicatorQuality,
   InviteUserResponse,
+  KpiAssistantStatus,
+  KpiSuggestion,
+  KpiSuggestionFilters,
+  KpiSuggestionList,
+  KpiSuggestionRunResponse,
   LibraryEntry,
   LibraryFilters,
   LoginResponse,
@@ -26,6 +32,11 @@ import type {
   ProjectListOptions,
   ProjectUpdateInput,
   QualitativeEntryCreateResponse,
+  AcceptKpiSuggestionBody,
+  AcceptKpiSuggestionResponse,
+  RejectKpiSuggestionBody,
+  RequestKpiSuggestionsBody,
+  RequestKpiSuggestionsResponse,
   Report,
   ReportDetail,
   ReportGenerateInput,
@@ -55,8 +66,13 @@ interface QualitativeUploadMetadata {
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').trim();
 
+/** What a token refresh came to (ApiClient.tryRefresh). */
+type RefreshOutcome = { outcome: 'refreshed' | 'ended' } | { outcome: 'unavailable'; status?: number };
+
 class ApiClient {
   private token: string | null = null;
+  /** The token refresh in flight, shared by every request that got a 401 meanwhile (tryRefresh). */
+  private refreshing: Promise<RefreshOutcome> | null = null;
 
   /**
    * Stores a new access token (sign-in or refresh). The saved profile takes the token's role, so a
@@ -108,12 +124,17 @@ class ApiClient {
 
   /**
    * Calls the API and returns the parsed JSON body; a failed response throws an
-   * ApiError carrying the HTTP status. `T` is the response type;
-   * endpoints without a model in src/types/api.ts keep the untyped default
-   * until their screens are rebuilt (Phase 6).
+   * ApiError carrying the HTTP status (and the error body's `code` and `details`).
+   * `T` is the response type; endpoints without a model in src/types/api.ts keep
+   * the untyped default until their screens are rebuilt (Phase 6).
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- default for endpoints not yet modelled
   private async request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    return (await this.send<T>(endpoint, options)).data;
+  }
+
+  /** Like request(), but also returns the HTTP status of the successful response (e.g. 200 vs 202). */
+  private async send<T>(endpoint: string, options: RequestInit = {}): Promise<{ data: T; status: number }> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...((options.headers as Record<string, string>) || {}),
@@ -124,18 +145,11 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    let response: Response;
-    try {
-      response = await fetch(`${API_BASE}${endpoint}`, {
-        ...options,
-        headers,
-      });
-    } catch (err) {
-      throw new Error(err instanceof Error && err.message ? err.message : 'Network error — please check your connection');
-    }
+    let response = await this.fetchOnce(endpoint, options, headers);
 
     if (response.status === 401) {
-      // The access token expired (or the session ended): refresh once, then send the request again.
+      // The access token expired (or the session ended): refresh once, then send the request again. Requests
+      // that expire together (e.g. the KPI run polls and the suggestion list) share one refresh (tryRefresh).
       const refresh = await this.tryRefresh();
       if (refresh.outcome === 'ended') return this.signOut();
       if (refresh.outcome === 'unavailable') {
@@ -145,36 +159,45 @@ class ApiClient {
         throw new ApiError('Raqib could not continue your session just now. Wait a few minutes and try again.', refresh.status);
       }
       headers['Authorization'] = `Bearer ${this.getToken()}`;
-      let retry: Response;
-      try {
-        retry = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-      } catch (err) {
-        throw new Error(err instanceof Error && err.message ? err.message : 'Network error — please check your connection');
-      }
-      // Only a second 401 means the session is over; any other refusal (400, 403, 409…) is the answer to show.
-      if (retry.status === 401) return this.signOut();
-      return this.readResponse<T>(retry);
+      response = await this.fetchOnce(endpoint, options, headers);
+      // Only a second 401 means the session is over; any other answer to the repeated request is handled like a
+      // first answer, so its status, code and details (400, 403, 409 already_decided, 409 project_archived…) reach
+      // the screen.
+      if (response.status === 401) return this.signOut();
     }
 
-    return this.readResponse<T>(response);
+    if (!response.ok) throw await this.failure(response, 'API request failed');
+    return { data: await this.parseBody<T>(response), status: response.status };
   }
 
-  /** The parsed body of a successful response, or an ApiError with the response's status, message and code. */
-  private async readResponse<T>(response: Response): Promise<T> {
-    if (!response.ok) throw await this.failure(response, 'API request failed');
-    return this.parseBody<T>(response);
+  /** One fetch of `endpoint`; a request that never got an answer (offline) throws an Error without a status. */
+  private async fetchOnce(endpoint: string, options: RequestInit, headers: Record<string, string>): Promise<Response> {
+    try {
+      return await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
+    } catch (err) {
+      throw new Error(err instanceof Error && err.message ? err.message : 'Network error — please check your connection');
+    }
   }
 
   /**
-   * The ApiError for a failed response (status, the server's message and its reason code). A write refused
-   * because the project is archived (409 `project_archived`) is also announced (src/lib/projectEvents.ts),
+   * The ApiError for a failed response (status, the server's message, its reason code and `details`). A write
+   * refused because the project is archived (409 `project_archived`) is also announced (src/lib/projectEvents.ts),
    * so an open project page switches to its read-only view.
    */
   private async failure(response: Response, fallbackMessage: string): Promise<ApiError> {
     const error = await response.json().catch(() => ({}));
     const code = typeof error?.code === 'string' ? error.code : undefined;
+    const details =
+      error?.details && typeof error.details === 'object' && !Array.isArray(error.details)
+        ? (error.details as Record<string, unknown>)
+        : undefined;
     if (response.status === 409 && code === PROJECT_ARCHIVED_CODE) emitProjectArchivedRefusal();
-    return new ApiError(typeof error?.message === 'string' && error.message ? error.message : fallbackMessage, response.status, code);
+    return new ApiError(
+      typeof error?.message === 'string' && error.message ? error.message : fallbackMessage,
+      response.status,
+      code,
+      details,
+    );
   }
 
   /** The session is over (refresh refused, or still 401 after refreshing): forget it and go to sign in. */
@@ -218,8 +241,20 @@ class ApiClient {
    * Trades the refresh token for a new pair. `ended`: there is no session to continue (no refresh token, or
    * the server refused it: signed out elsewhere, or the password changed). `unavailable`: the server could not
    * answer now (rate limit, server error, offline), so the session is kept and the user can try again.
+   * Requests that expire together (e.g. the KPI run polls and the suggestion list) share one refresh, so a burst
+   * of 401s sends one POST /auth/refresh: the per-IP authLimiter counts every refresh, and a refused refresh
+   * signs the user out.
    */
-  private async tryRefresh(): Promise<{ outcome: 'refreshed' | 'ended' } | { outcome: 'unavailable'; status?: number }> {
+  private tryRefresh(): Promise<RefreshOutcome> {
+    if (!this.refreshing) {
+      this.refreshing = this.refreshOnce().finally(() => {
+        this.refreshing = null;
+      });
+    }
+    return this.refreshing;
+  }
+
+  private async refreshOnce(): Promise<RefreshOutcome> {
     const refreshToken = localStorage.getItem('raqib_refresh_token');
     if (!refreshToken) return { outcome: 'ended' };
     let res: Response;
@@ -418,12 +453,76 @@ class ApiClient {
     return this.request<Indicator>(`/indicators/${id}/approve`, { method: 'PATCH' });
   }
 
-  async requestAlternative(indicatorId: string) {
-    return this.request(`/indicators/${indicatorId}/alternative`, { method: 'POST' });
+  /** Alternatives to an indicator through the KPI Assistant (same answers as requestKpiSuggestions with scope alternatives). */
+  async requestAlternative(indicatorId: string): Promise<RequestKpiSuggestionsResponse> {
+    const { data, status } = await this.send<Omit<RequestKpiSuggestionsResponse, 'httpStatus'>>(
+      `/indicators/${indicatorId}/alternative`, { method: 'POST' },
+    );
+    return { ...data, httpStatus: status };
   }
 
   async deleteIndicator(id: string) {
     return this.request(`/indicators/${id}`, { method: 'DELETE' });
+  }
+
+  // KPI Assistant (Phase 4; knowledge/kpi-assistant-spec.md §A6)
+  /** Whether the server can call the AI (aiConfigured false until the Anthropic key is set). */
+  async getKpiAssistantStatus() {
+    return this.request<KpiAssistantStatus>('/kpi-assistant/status');
+  }
+
+  /**
+   * Starts a KPI run: 200 when it finished within the server's wait (run + suggestions), 202 while it runs (poll
+   * getKpiSuggestionRun). `httpStatus` tells them apart. Errors carry ApiError.code (e.g. run_in_progress with
+   * details.runId, ai_not_configured, nothing_to_suggest).
+   */
+  async requestKpiSuggestions(projectId: string, body: RequestKpiSuggestionsBody): Promise<RequestKpiSuggestionsResponse> {
+    const { data, status } = await this.send<Omit<RequestKpiSuggestionsResponse, 'httpStatus'>>(
+      `/projects/${projectId}/kpi-suggestions`, { method: 'POST', body: JSON.stringify(body) },
+    );
+    return { ...data, httpStatus: status };
+  }
+
+  /** Suggestions of the project's current framework (pending by default), its active runs and latest framework run. */
+  async getKpiSuggestions(projectId: string, filters: KpiSuggestionFilters = {}) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) params.set(key, String(value));
+    }
+    const query = params.toString();
+    return this.request<KpiSuggestionList>(`/projects/${projectId}/kpi-suggestions${query ? `?${query}` : ''}`);
+  }
+
+  /** A run and all its suggestions (any status), polled while it runs (design 7.4). */
+  async getKpiSuggestionRun(runId: string) {
+    return this.request<KpiSuggestionRunResponse>(`/kpi-suggestion-runs/${runId}`);
+  }
+
+  /**
+   * Accepts a suggestion, with the user's edits (draft fields only: none means accepted as suggested) and, for an
+   * alternative to an existing indicator, `replaceSource` to remove that indicator in the same transaction (409
+   * source_has_data when it holds data).
+   */
+  async acceptKpiSuggestion(id: string, edits?: IndicatorInput, options: { replaceSource?: boolean } = {}) {
+    const body: AcceptKpiSuggestionBody = {
+      ...(edits && { edits }),
+      ...(options.replaceSource && { replaceSource: true }),
+    };
+    return this.request<AcceptKpiSuggestionResponse>(`/kpi-suggestions/${id}/accept`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Rejects a suggestion with a reason (design 8.2); the note is stored redacted and never sent to a model. */
+  async rejectKpiSuggestion(id: string, body: RejectKpiSuggestionBody) {
+    return this.request<{ suggestion: KpiSuggestion }>(`/kpi-suggestions/${id}/reject`, { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  /** Deterministic quality check of every indicator of a framework (no AI call). */
+  async getIndicatorQuality(frameworkId: string): Promise<IndicatorQuality[]> {
+    const data = await this.request<{ indicators: IndicatorQuality[] }>(`/frameworks/${frameworkId}/indicator-quality`);
+    return data?.indicators ?? [];
   }
 
   // Indicator data

@@ -8,20 +8,17 @@ const statusConfig: Record<IndicatorStatus, { color: string; label: string }> = 
   completed: { color: "bg-success", label: "Completed" },
 };
 
-const textConfig: Record<IndicatorStatus, string> = {
-  on_track: "text-success",
-  at_risk: "text-warning",
-  off_track: "text-danger",
-  not_started: "text-muted-foreground",
-  completed: "text-success",
-};
-
+/**
+ * An indicator's status as a coloured dot and, with `showLabel`, its name. The label is in the text colour: the status
+ * colours on white are below the 4.5:1 contrast that small text needs (WCAG 1.4.3; success 3.4:1, warning 3.5:1), and
+ * the dot already carries the colour.
+ */
 export function StatusDot({ status, showLabel = false, size = "md" }: { status: IndicatorStatus; showLabel?: boolean; size?: "sm" | "md" }) {
   const config = statusConfig[status] ?? statusConfig.not_started;
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className={`rounded-full ${config.color} ${size === "sm" ? "h-2 w-2" : "h-2.5 w-2.5"}`} />
-      {showLabel && <span className={`text-xs font-medium ${textConfig[status] ?? textConfig.not_started}`}>{config.label}</span>}
+      <span aria-hidden={showLabel ? "true" : undefined} className={`rounded-full ${config.color} ${size === "sm" ? "h-2 w-2" : "h-2.5 w-2.5"}`} />
+      {showLabel && <span className="text-xs font-medium text-foreground">{config.label}</span>}
     </span>
   );
 }

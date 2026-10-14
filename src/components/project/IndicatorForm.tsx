@@ -2,9 +2,9 @@ import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type React
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { AlertCircle, AlertTriangle, CheckCircle2, Clock, Info, Loader2, Plus, Save, Sparkles, Trash2, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, Check, CheckCircle2, Clock, Info, Loader2, Plus, Save, Trash2, X } from "lucide-react";
 import { api } from "@/services/api";
-import type { FrameworkStatus, Indicator, IndicatorInput, ResultNode } from "@/types/api";
+import type { AcceptKpiSuggestionResponse, Framework, Indicator, IndicatorInput, KpiSuggestion, ResultNode } from "@/types/api";
 import { dirFor, type AppLanguage } from "@/i18n";
 import {
   COLLECTION_METHODS,
@@ -14,12 +14,15 @@ import {
   INDICATOR_LEVELS,
   INDICATOR_STATUSES,
   UNIT_SUGGESTIONS,
+  type KpiShownErrorCode,
 } from "@/lib/constants";
 import {
+  ACCEPT_HIDDEN_FIELDS,
   FORM_SECTIONS,
   LIMITS,
   MAX_INTERMEDIATE_TARGETS,
   MAX_MILESTONES,
+  acceptEdits,
   blockingErrors,
   buildCreatePayload,
   buildUpdatePayload,
@@ -28,6 +31,7 @@ import {
   emptyIndicatorForm,
   indicatorFormWarnings,
   indicatorToFormValues,
+  inputToFormValues,
   isPercentUnit,
   needsAiReviewLabel,
   normaliseLibraryId,
@@ -40,7 +44,9 @@ import {
 import { buildResultTree, flattenResultTree, resultText } from "@/lib/resultsHierarchy";
 import { queryKeys } from "@/lib/queryKeys";
 import { invalidateFrameworkData, useDebouncedValue } from "@/hooks/useFrameworkData";
+import { useAcceptKpiSuggestion } from "@/hooks/useKpiSuggestions";
 import { httpStatusOf, isProjectArchived } from "@/lib/apiError";
+import { acceptedToastText, indicatorNameIn, kpiErrorText, replaceableSource, requestErrorCode } from "@/lib/kpiSuggestions";
 import { cn, errorMessage } from "@/lib/utils";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -50,31 +56,58 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { NativeSelect } from "@/components/common/NativeSelect";
 import { FieldMessage } from "@/components/common/FieldMessage";
+import { AiSuggestedLabel } from "@/components/common/AiSuggestedLabel";
+import { labelWithName } from "@/components/kpi/labelWithName";
 
 /**
  * The indicator reference sheet (knowledge/me-foundations.md §3) as one form,
- * used to add and to edit indicators. Sections are an accordion (keyboard
- * accessible); every input has a visible label; errors are announced.
- * On edit only the changed fields are sent, and only problems in changed
- * fields block saving.
+ * used to add and to edit indicators and to edit a KPI suggestion before
+ * accepting it. Sections are an accordion (keyboard accessible); every input
+ * has a visible label; errors are announced. On edit only the changed fields
+ * are sent, and only problems in changed fields block saving.
+ *
+ * Accept mode (knowledge/kpi-assistant-spec.md §A7 "Edit & accept"; design
+ * section 9.5): the form starts from the suggestion's draft, every problem
+ * blocks (as on create), the level follows the result, provenance is set by
+ * Raqib ("AI suggested") and the AI label is shown. Saving accepts the
+ * suggestion with only the fields the user changed (none: accepted as is).
+ * Fields that are not part of a suggestion (status, current value, actual
+ * dates, milestones: ACCEPT_HIDDEN_FIELDS) are hidden; they are edited after
+ * accepting. An alternative to an indicator still in the framework shows
+ * "Replace “<old name>” with this indicator" (unticked; sends replaceSource;
+ * 409 source_has_data keeps the form so the officer can untick it; SPEC-8).
  */
 
+/** Props of IndicatorForm (design section 9.5 adds accept mode, `suggestion` and `onAccepted`). */
 export interface IndicatorFormProps {
-  mode: "create" | "edit";
+  /** accept: Edit & accept of a KPI suggestion (needs `suggestion`). */
+  mode: "create" | "edit" | "accept";
   projectId: string;
   frameworkId: string;
   /** The indicator being edited (edit mode). */
   indicator?: Indicator;
-  /** Status of the indicator's framework; once approved, AI-made indicators lose the review label. */
-  frameworkStatus?: FrameworkStatus | null;
   /** Result nodes of the framework, for the "Result it measures" select. */
   resultNodes: readonly ResultNode[];
   /** Language of the labels; the form renders right-to-left in Arabic. */
   lang: AppLanguage;
   /** Pre-selected result when adding an indicator under a result. */
   defaultResultId?: string;
+  /** The suggestion being accepted (accept mode): the form starts from its draft. */
+  suggestion?: KpiSuggestion;
+  /** Create and edit: the saved indicator. */
   onSaved: (indicator: Indicator) => void;
+  /**
+   * Accept mode: the accept response (indicator, suggestion, warnings such as donor_cap_exceeded), after the form
+   * has shown the success toast (kpi.toast.accepted or kpi.toast.acceptedOverCap).
+   */
+  onAccepted?: (response: AcceptKpiSuggestionResponse) => void;
+  /** Cancel, nothing to save, or an accept answered 409 (already decided, stale, duplicate: toast shown, list refetched). */
   onCancel: () => void;
+  /**
+   * Accept mode: an accept answered 409, with its code (already_decided, stale or duplicate), called before onCancel,
+   * so the suggestion card can leave the list and move focus (an already decided or stale card disappears).
+   */
+  onConflict?: (code: KpiShownErrorCode) => void;
 }
 
 const MAX_OPTION_TEXT = 90;
@@ -86,18 +119,27 @@ function clip(text: string, max = MAX_OPTION_TEXT): string {
 /** Library ids look like "FS-01" or "WASH-03". */
 const LIBRARY_ID_PATTERN = /^[A-Za-z][A-Za-z0-9]*-\d+[A-Za-z0-9-]*$/;
 
+/**
+ * The indicator form (knowledge/me-foundations.md §3) in create, edit or accept mode (knowledge/kpi-assistant-spec.md
+ * §A7 "Edit & accept"; design section 9.5). See the module comment above for the rules of each mode.
+ */
 export function IndicatorForm({
   mode,
   projectId,
   frameworkId,
   indicator,
-  frameworkStatus,
   resultNodes,
   lang,
   defaultResultId,
+  suggestion,
   onSaved,
+  onAccepted,
   onCancel,
+  onConflict,
 }: IndicatorFormProps) {
+  // Accept mode without a suggestion cannot accept anything: it behaves like create.
+  const accepting = mode === "accept" && suggestion !== undefined;
+  const createLike = mode !== "edit";
   const { t } = useTranslation(undefined, { lng: lang });
   const queryClient = useQueryClient();
   const baseId = useId();
@@ -109,6 +151,7 @@ export function IndicatorForm({
   );
   const [values, setValues] = useState<IndicatorFormValues>(() => {
     if (initialValues) return initialValues;
+    if (accepting) return inputToFormValues(suggestion.draft);
     const result = resultNodes.find((n) => n.id === defaultResultId);
     return emptyIndicatorForm(result ? { resultId: result.id, level: result.level } : {});
   });
@@ -118,10 +161,21 @@ export function IndicatorForm({
   const [groupDraft, setGroupDraft] = useState("");
   const [groupError, setGroupError] = useState<FormError | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
+  // Accept mode, an alternative to an indicator still in the framework: replace it (SPEC-8; unchecked by default).
+  const [replaceSource, setReplaceSource] = useState(false);
+  const source = accepting
+    ? replaceableSource(suggestion, queryClient.getQueryData<Framework | null>(queryKeys.framework(projectId))?.indicators)
+    : null;
   const [focusTarget, setFocusTarget] = useState<string | null>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
 
-  const errors = useMemo(() => blockingErrors(validateIndicatorForm(values), values, initialValues), [values, initialValues]);
+  const errors = useMemo(() => {
+    const all = blockingErrors(validateIndicatorForm(values), values, initialValues);
+    if (!accepting) return all;
+    // Hidden in accept mode (not part of a suggestion): never block on them.
+    const hidden = (key: string) => (ACCEPT_HIDDEN_FIELDS as readonly string[]).some((f) => key === f || key.startsWith(`${f}.`));
+    return Object.fromEntries(Object.entries(all).filter(([key]) => !hidden(key)));
+  }, [values, initialValues, accepting]);
   const errorKeys = Object.keys(errors);
   const warnings = useMemo(() => indicatorFormWarnings(values), [values]);
 
@@ -178,7 +232,8 @@ export function IndicatorForm({
     setValues((prev) => ({ ...prev, resultId, ...(node ? { level: node.level } : {}) }));
     setServerError(null);
   };
-  const levelFromResult = Boolean(values.resultId);
+  // Accept mode: the indicator measures a result, so the level always follows it (design 9.5).
+  const levelFromResult = Boolean(values.resultId) || accepting;
 
   // ------------------------------------------------------------ library id
   // Library ids are stored upper-case; "fs-01" finds FS-01.
@@ -237,11 +292,11 @@ export function IndicatorForm({
   // ----------------------------------------------------------------- save
   const mutation = useMutation({
     mutationFn: (payload: IndicatorInput) =>
-      mode === "create"
+      createLike
         ? api.addIndicatorToFramework(frameworkId, payload)
         : api.updateIndicator((indicator as Indicator).id, payload),
     onSuccess: (saved) => {
-      toast.success(t(mode === "create" ? "indicatorForm.toast.created" : "indicatorForm.toast.updated"));
+      toast.success(t(createLike ? "indicatorForm.toast.created" : "indicatorForm.toast.updated"));
       void invalidateFrameworkData(queryClient, { projectId, frameworkId });
       onSaved(saved);
     },
@@ -255,6 +310,39 @@ export function IndicatorForm({
     },
   });
 
+  // Accept (Edit & accept): the hook refetches the framework, the suggestions and the quality check.
+  const acceptMutation = useAcceptKpiSuggestion(projectId, frameworkId);
+  const acceptSuggestion = (edits: IndicatorInput | undefined) => {
+    if (!suggestion) return;
+    const replace = Boolean(source) && replaceSource;
+    acceptMutation.mutate({ id: suggestion.id, ...(edits && { edits }), ...(replace && { replaceSource: true }) }, {
+      onSuccess: (response) => {
+        const resultId = response.indicator.resultId ?? values.resultId;
+        const code = resultNodes.find((n) => n.id === resultId)?.code ?? response.indicator.result?.code ?? suggestion.resultCode;
+        toast.success(acceptedToastText(t, response, code));
+        onAccepted?.(response);
+      },
+      onError: (err) => {
+        const code = requestErrorCode(err);
+        if (httpStatusOf(err) === 409 && code !== "conflict" && code !== "source_has_data") {
+          // Decided by someone else, expired (stale) or a duplicate: nothing to fix in the form; the list is refetched.
+          toast.error(kpiErrorText(t, code));
+          onConflict?.(code);
+          onCancel();
+          return;
+        }
+        // Anything else keeps the form and the user's edits, so Accept can be pressed again: a write conflict with a
+        // simultaneous change (409 conflict: nothing was saved), an indicator that cannot be replaced (409
+        // source_has_data: untick Replace and accept), a refused field (400 not_editable) or a validation error. A code
+        // the UI knows is shown translated; otherwise the server's message.
+        const known = (err as { code?: unknown } | null)?.code === code;
+        setServerError(known ? kpiErrorText(t, code) : errorMessage(err, t("kpi.toast.acceptFailed")));
+        toast.error(t("kpi.toast.acceptFailed"));
+        requestAnimationFrame(() => summaryRef.current?.focus());
+      },
+    });
+  };
+
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
     setSubmitted(true);
@@ -267,7 +355,11 @@ export function IndicatorForm({
       return;
     }
 
-    if (mode === "create") {
+    if (accepting) {
+      acceptSuggestion(acceptEdits(suggestion.draft, values));
+      return;
+    }
+    if (createLike) {
       mutation.mutate(buildCreatePayload(values));
       return;
     }
@@ -284,11 +376,12 @@ export function IndicatorForm({
     submitted ? errorKeys.filter((k) => sectionOfField(k) === section).length : 0;
 
   const allOpen = openSections.length === FORM_SECTIONS.length;
-  const provenance = mode === "edit" && indicator ? indicator.provenance : createProvenance(values);
-  const showAiLabel = mode === "edit" && indicator
-    ? needsAiReviewLabel(indicator.provenance, indicator.isApproved, frameworkStatus)
-    : false;
-  const saving = mutation.isPending;
+  const provenance = accepting ? "ai_suggested" : mode === "edit" && indicator ? indicator.provenance : createProvenance(values);
+  const showAiLabel = accepting || (mode === "edit" && indicator ? needsAiReviewLabel(indicator.provenance, indicator.isApproved) : false);
+  const aiModel = accepting
+    ? { model: suggestion.model, promptVersion: suggestion.promptVersion }
+    : mode === "edit" && indicator?.aiModel ? { model: indicator.aiModel, promptVersion: indicator.promptVersion } : null;
+  const saving = mutation.isPending || acceptMutation.isPending;
 
   // --------------------------------------------------------------- layout
   const sectionHeader = (section: FormSection) => {
@@ -311,11 +404,24 @@ export function IndicatorForm({
   return (
     <form noValidate onSubmit={handleSubmit} dir={dir} lang={lang} className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-4">
-        {showAiLabel && (
-          <p role="note" className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm font-medium">
-            <Sparkles aria-hidden="true" className="h-4 w-4 shrink-0" />
-            {t("ai.suggestedLabel")}
-          </p>
+        {showAiLabel && <AiSuggestedLabel lang={lang} variant="banner" />}
+
+        {source && (
+          <div className="flex items-start gap-3 rounded-md border p-3">
+            <Checkbox
+              id={fid("replaceSource")}
+              checked={replaceSource}
+              onCheckedChange={(checked) => setReplaceSource(checked === true)}
+              aria-describedby={fid("replaceSource-hint")}
+              className="mt-0.5"
+            />
+            <div className="min-w-0 space-y-1">
+              <Label htmlFor={fid("replaceSource")} className="text-sm font-medium leading-snug">
+                {labelWithName(t, "kpi.replace.checkbox", indicatorNameIn(source, lang))}
+              </Label>
+              <p id={fid("replaceSource-hint")} className="text-xs text-muted-foreground">{t("kpi.replace.checkboxHint")}</p>
+            </div>
+          </div>
         )}
 
         <div
@@ -397,23 +503,26 @@ export function IndicatorForm({
               <Field id={fid("resultId")} label={t("indicatorForm.fields.result")} error={visibleError("resultId")}
                 hint={resultOptions.length > 0 ? t("indicatorForm.hints.result") : t("indicatorForm.hints.noResults")}>
                 <NativeSelect {...control("resultId", { hint: true })} value={values.resultId} onChange={(e) => onResultChange(e.target.value)}>
-                  <option value="">{t("indicatorForm.noResultOption")}</option>
+                  {/* An accepted suggestion always measures a result. */}
+                  {!accepting && <option value="">{t("indicatorForm.noResultOption")}</option>}
                   {resultOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
                 </NativeSelect>
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field id={fid("level")} label={t("indicatorForm.fields.level")} error={visibleError("level")}
-                  hint={levelFromResult ? t("indicatorForm.hints.levelFromResult") : undefined}>
+                  hint={accepting ? t("indicatorForm.hints.levelAccept") : levelFromResult ? t("indicatorForm.hints.levelFromResult") : undefined}>
                   <NativeSelect {...control("level", { hint: levelFromResult })} disabled={levelFromResult} value={values.level}
                     onChange={(e) => set("level", e.target.value as IndicatorFormValues["level"])}>
                     {INDICATOR_LEVELS.map((level) => <option key={level} value={level}>{t(`level.${level}`)}</option>)}
                   </NativeSelect>
                 </Field>
-                <Field id={fid("status")} label={t("indicatorForm.fields.status")} error={visibleError("status")}>
-                  <NativeSelect {...control("status")} value={values.status} onChange={(e) => set("status", e.target.value as IndicatorFormValues["status"])}>
-                    {INDICATOR_STATUSES.map((status) => <option key={status} value={status}>{t(`status.${status}`)}</option>)}
-                  </NativeSelect>
-                </Field>
+                {!accepting && (
+                  <Field id={fid("status")} label={t("indicatorForm.fields.status")} error={visibleError("status")}>
+                    <NativeSelect {...control("status")} value={values.status} onChange={(e) => set("status", e.target.value as IndicatorFormValues["status"])}>
+                      {INDICATOR_STATUSES.map((status) => <option key={status} value={status}>{t(`status.${status}`)}</option>)}
+                    </NativeSelect>
+                  </Field>
+                )}
               </div>
             </AccordionContent>
           </AccordionItem>
@@ -615,10 +724,12 @@ export function IndicatorForm({
                   <Input {...control("targetValue", { hint: true })} dir="auto" maxLength={LIMITS.targetValue}
                     value={values.targetValue} onChange={(e) => set("targetValue", e.target.value)} />
                 </Field>
-                <Field id={fid("currentValue")} label={t("indicatorForm.fields.currentValue")} error={visibleError("currentValue")}>
-                  <Input {...control("currentValue")} dir="auto" maxLength={LIMITS.currentValue}
-                    value={values.currentValue} onChange={(e) => set("currentValue", e.target.value)} />
-                </Field>
+                {!accepting && (
+                  <Field id={fid("currentValue")} label={t("indicatorForm.fields.currentValue")} error={visibleError("currentValue")}>
+                    <Input {...control("currentValue")} dir="auto" maxLength={LIMITS.currentValue}
+                      value={values.currentValue} onChange={(e) => set("currentValue", e.target.value)} />
+                  </Field>
+                )}
               </div>
               <Field id={fid("targetJustification")} label={t("indicatorForm.fields.targetJustification")} error={visibleError("targetJustification")}>
                 <Textarea {...control("targetJustification")} dir="auto" rows={2} maxLength={LIMITS.targetJustification}
@@ -688,23 +799,19 @@ export function IndicatorForm({
                 </Field>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field id={fid("provenance")} label={t("indicatorForm.fields.provenance")} hint={t("indicatorForm.hints.provenance")}>
+                <Field id={fid("provenance")} label={t("indicatorForm.fields.provenance")}
+                  hint={t(accepting ? "indicatorForm.hints.provenanceAccept" : "indicatorForm.hints.provenance")}>
                   <Input id={fid("provenance")} readOnly aria-describedby={`${fid("provenance")}-hint`} className="bg-muted"
                     value={t(`provenance.${provenance}`)} />
                 </Field>
-                {mode === "edit" && indicator?.aiModel && (
+                {aiModel && (
                   <Field id={fid("aiModel")} label={t("indicatorForm.fields.aiModel")}>
                     <Input id={fid("aiModel")} readOnly dir="ltr" className="bg-muted font-mono"
-                      value={indicator.promptVersion ? `${indicator.aiModel} · ${indicator.promptVersion}` : indicator.aiModel} />
+                      value={aiModel.promptVersion ? `${aiModel.model} · ${aiModel.promptVersion}` : aiModel.model} />
                   </Field>
                 )}
               </div>
-              {showAiLabel && (
-                <p className="flex items-center gap-2 text-xs font-medium">
-                  <Sparkles aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-                  {t("ai.suggestedLabel")}
-                </p>
-              )}
+              {showAiLabel && <AiSuggestedLabel lang={lang} />}
             </AccordionContent>
           </AccordionItem>
 
@@ -724,56 +831,59 @@ export function IndicatorForm({
           <AccordionItem value="timeline">
             {sectionHeader("timeline")}
             <AccordionContent className="space-y-4 px-1 pt-1">
+              {accepting && <p className="text-xs text-muted-foreground">{t("indicatorForm.hints.acceptLater")}</p>}
               <div className="grid gap-4 sm:grid-cols-2">
-                {(["startDate", "endDate", "actualStartDate", "actualEndDate"] as const).map((field) => (
+                {(accepting ? (["startDate", "endDate"] as const) : (["startDate", "endDate", "actualStartDate", "actualEndDate"] as const)).map((field) => (
                   <Field key={field} id={fid(field)} label={t(`indicatorForm.fields.${field}`)} error={visibleError(field)}>
                     <Input {...control(field)} type="date" dir="ltr" value={values[field]} onChange={(e) => set(field, e.target.value)} />
                   </Field>
                 ))}
               </div>
 
-              <fieldset className="space-y-2">
-                <legend id={fid("milestones")} tabIndex={-1} className="text-sm font-medium focus:outline-none">
-                  {t("indicatorForm.fields.milestones")}
-                </legend>
-                {values.milestones.length === 0 && <p className="text-xs text-muted-foreground">{t("indicatorForm.hints.noMilestones")}</p>}
-                {values.milestones.map((row, i) => {
-                  const n = i + 1;
-                  return (
-                    <div key={i} className="grid items-start gap-2 sm:grid-cols-[2fr_1fr_auto_auto]">
-                      <Field id={fid(`milestones.${i}.label`)} label={t("indicatorForm.fields.milestoneLabel", { n })}
-                        error={visibleError(`milestones.${i}.label`)} labelClassName="text-xs">
-                        <Input {...control(`milestones.${i}.label`)} dir="auto" maxLength={LIMITS.milestoneLabel}
-                          placeholder={t("indicatorForm.placeholders.milestoneLabel")} value={row.label}
-                          onChange={(e) => setMilestone(i, { label: e.target.value })} />
-                      </Field>
-                      <Field id={fid(`milestones.${i}.date`)} label={t("indicatorForm.fields.milestoneDate", { n })}
-                        error={visibleError(`milestones.${i}.date`)} labelClassName="text-xs">
-                        <Input {...control(`milestones.${i}.date`)} type="date" dir="ltr" value={row.date}
-                          onChange={(e) => setMilestone(i, { date: e.target.value })} />
-                      </Field>
-                      <div className="flex h-10 items-center gap-2 sm:mt-6">
-                        <Checkbox id={fid(`milestones.${i}.completed`)} checked={row.completed}
-                          onCheckedChange={(checked) => setMilestone(i, { completed: checked === true })} />
-                        <Label htmlFor={fid(`milestones.${i}.completed`)} className="text-xs">
-                          {t("indicatorForm.fields.milestoneCompleted", { n })}
-                        </Label>
+              {!accepting && (
+                <fieldset className="space-y-2">
+                  <legend id={fid("milestones")} tabIndex={-1} className="text-sm font-medium focus:outline-none">
+                    {t("indicatorForm.fields.milestones")}
+                  </legend>
+                  {values.milestones.length === 0 && <p className="text-xs text-muted-foreground">{t("indicatorForm.hints.noMilestones")}</p>}
+                  {values.milestones.map((row, i) => {
+                    const n = i + 1;
+                    return (
+                      <div key={i} className="grid items-start gap-2 sm:grid-cols-[2fr_1fr_auto_auto]">
+                        <Field id={fid(`milestones.${i}.label`)} label={t("indicatorForm.fields.milestoneLabel", { n })}
+                          error={visibleError(`milestones.${i}.label`)} labelClassName="text-xs">
+                          <Input {...control(`milestones.${i}.label`)} dir="auto" maxLength={LIMITS.milestoneLabel}
+                            placeholder={t("indicatorForm.placeholders.milestoneLabel")} value={row.label}
+                            onChange={(e) => setMilestone(i, { label: e.target.value })} />
+                        </Field>
+                        <Field id={fid(`milestones.${i}.date`)} label={t("indicatorForm.fields.milestoneDate", { n })}
+                          error={visibleError(`milestones.${i}.date`)} labelClassName="text-xs">
+                          <Input {...control(`milestones.${i}.date`)} type="date" dir="ltr" value={row.date}
+                            onChange={(e) => setMilestone(i, { date: e.target.value })} />
+                        </Field>
+                        <div className="flex h-10 items-center gap-2 sm:mt-6">
+                          <Checkbox id={fid(`milestones.${i}.completed`)} checked={row.completed}
+                            onCheckedChange={(checked) => setMilestone(i, { completed: checked === true })} />
+                          <Label htmlFor={fid(`milestones.${i}.completed`)} className="text-xs">
+                            {t("indicatorForm.fields.milestoneCompleted", { n })}
+                          </Label>
+                        </div>
+                        <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:mt-6"
+                          aria-label={t("indicatorForm.actions.removeMilestone", { n })}
+                          onClick={() => set("milestones", values.milestones.filter((_, j) => j !== i))}>
+                          <Trash2 aria-hidden="true" className="h-4 w-4" />
+                        </Button>
                       </div>
-                      <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:mt-6"
-                        aria-label={t("indicatorForm.actions.removeMilestone", { n })}
-                        onClick={() => set("milestones", values.milestones.filter((_, j) => j !== i))}>
-                        <Trash2 aria-hidden="true" className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  );
-                })}
-                <FieldMessage id={`${fid("milestones")}-error`} message={visibleError("milestones")} />
-                <Button type="button" variant="outline" size="sm" disabled={values.milestones.length >= MAX_MILESTONES}
-                  onClick={() => set("milestones", [...values.milestones, { label: "", date: "", completed: false }])}>
-                  <Plus aria-hidden="true" className="me-1 h-4 w-4" />
-                  {t("indicatorForm.actions.addMilestone")}
-                </Button>
-              </fieldset>
+                    );
+                  })}
+                  <FieldMessage id={`${fid("milestones")}-error`} message={visibleError("milestones")} />
+                  <Button type="button" variant="outline" size="sm" disabled={values.milestones.length >= MAX_MILESTONES}
+                    onClick={() => set("milestones", [...values.milestones, { label: "", date: "", completed: false }])}>
+                    <Plus aria-hidden="true" className="me-1 h-4 w-4" />
+                    {t("indicatorForm.actions.addMilestone")}
+                  </Button>
+                </fieldset>
+              )}
             </AccordionContent>
           </AccordionItem>
         </Accordion>
@@ -786,8 +896,10 @@ export function IndicatorForm({
         <Button type="submit" disabled={saving}>
           {saving ? (
             <><Loader2 aria-hidden="true" className="me-2 h-4 w-4 animate-spin" />{t("indicatorForm.actions.saving")}</>
+          ) : accepting ? (
+            <><Check aria-hidden="true" className="me-1.5 h-4 w-4" />{t("indicatorForm.actions.accept")}</>
           ) : (
-            <><Save aria-hidden="true" className="me-1.5 h-4 w-4" />{t(mode === "create" ? "indicatorForm.actions.create" : "indicatorForm.actions.save")}</>
+            <><Save aria-hidden="true" className="me-1.5 h-4 w-4" />{t(createLike ? "indicatorForm.actions.create" : "indicatorForm.actions.save")}</>
           )}
         </Button>
       </div>

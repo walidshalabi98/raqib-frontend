@@ -1,11 +1,15 @@
-import { Fragment, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Fragment, useId, useState } from "react";
+import type { TFunction } from "i18next";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api } from "@/services/api";
 import type { Indicator, Milestone, ResultNode } from "@/types/api";
 import { MethodPill } from "@/components/common/MethodPill";
 import { StatusDot } from "@/components/common/StatusDot";
 import { LevelBadge } from "@/components/common/LevelBadge";
+import { AiSuggestedLabel } from "@/components/common/AiSuggestedLabel";
+import { StandardBadge } from "@/components/kpi/StandardBadge";
+import { labelWithName, nameLanguage } from "@/components/kpi/labelWithName";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,13 +17,15 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { IndicatorDialog } from "@/components/project/IndicatorDialog";
 import { ResultsChainPanel } from "@/components/project/ResultsChainPanel";
-import { useFrameworkResults } from "@/hooks/useFrameworkData";
+import { invalidateFrameworkData, useFrameworkResults } from "@/hooks/useFrameworkData";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
-import { needsAiReviewLabel } from "@/lib/indicatorForm";
+import type { AppLanguage } from "@/i18n";
+import { canApproveIndicator, needsAiReviewLabel } from "@/lib/indicatorForm";
 import { queryKeys } from "@/lib/queryKeys";
 import {
   ChevronDown, ChevronRight, Loader2, Plus, Pencil,
-  AlertTriangle, Clock, CheckCircle2, Users, Sparkles,
+  AlertTriangle, Clock, CheckCircle2, Users, BadgeCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/utils";
@@ -127,8 +133,63 @@ function CreateFrameworkDialog({ projectId, onCreated }: { projectId: string; on
 }
 
 /**
- * The project's framework: indicators as a table or a timeline, with the results chain. `canEdit` (org staff
- * on a project that is not archived) shows adding, editing and creating a framework; everyone else reads.
+ * Where an indicator comes from (knowledge/me-foundations.md §3 provenance; design section 9.5): the provenance text,
+ * the standard or library badge, and the library id when the badge shows the standard reference instead.
+ */
+function SourceCell({ indicator, lang }: { indicator: Indicator; lang: AppLanguage }) {
+  const { t } = useTranslation(undefined, { lng: lang });
+  return (
+    <div lang={lang} className="flex min-w-0 flex-col items-start gap-1">
+      <span className="text-xs text-muted-foreground">{t(`provenance.${indicator.provenance}`)}</span>
+      <StandardBadge libraryId={indicator.libraryId} standardReferenceCode={indicator.standardReferenceCode} provenance={indicator.provenance} lang={lang} />
+      {indicator.libraryId && indicator.standardReferenceCode && (
+        <span className="font-mono text-[10px] text-muted-foreground" dir="ltr">{indicator.libraryId}</span>
+      )}
+    </div>
+  );
+}
+
+/** An indicator's name in the user's language: the Arabic name when the user reads Arabic and there is one. */
+function indicatorNameFor(indicator: Pick<Indicator, "indicatorText" | "indicatorTextAr">, lang: AppLanguage): string {
+  return lang === "ar" && indicator.indicatorTextAr ? indicator.indicatorTextAr : indicator.indicatorText;
+}
+
+/** The name a row shows (indicatorNameFor); an Arabic name is marked as Arabic on this English screen. */
+function IndicatorName({ indicator, lang }: { indicator: Indicator; lang: AppLanguage }) {
+  const name = indicatorNameFor(indicator, lang);
+  return nameLanguage(name) === "ar" ? <span lang="ar" dir="rtl">{name}</span> : <>{name}</>;
+}
+
+/**
+ * Edit and Approve in a row: 44 px tall on phones (UX_STANDARDS §7), 28 px from sm up where the table has room.
+ * Replaces size sm's padding; its h-9 stays, and min-h-11 lifts it below sm.
+ */
+const ROW_ACTION_CLASS = "min-h-11 px-2 sm:h-7 sm:min-h-0";
+
+/**
+ * The accessible name of a row action, "<action> <indicator name>" (`key`, e.g. "Approve {{name}}"), naming the
+ * indicator as the row shows it (indicatorNameFor). A name in the label's language goes in aria-label. A name in the
+ * other language (an English name in an Arabic label, when the indicator has no Arabic name) is marked with its own
+ * language as labelWithName does (WCAG 3.1.2): the label is then a hidden element, referenced by aria-labelledby, so
+ * the name is not repeated on screen or in find-in-page. The visible word starts the label either way (WCAG 2.5.3).
+ */
+function rowActionName(t: TFunction, key: string, name: string, lang: AppLanguage, labelId: string) {
+  if (nameLanguage(name) === lang) return { props: { "aria-label": t(key, { name }) }, label: null };
+  return {
+    props: { "aria-labelledby": labelId },
+    label: <span id={labelId} hidden>{labelWithName(t, key, name)}</span>,
+  };
+}
+
+/**
+ * The framework's indicators as a table or a timeline, with the results chain panel (and its KPI Assistant) above.
+ * Phase 4 (design section 9.5, D18): a Source column, the "AI suggested — review before approval" label until the
+ * indicator itself is approved (table and timeline), and for org and platform admins an Approve button on unapproved
+ * AI-made indicators in any framework status, and on every unapproved indicator once the framework is approved or
+ * active (canApproveIndicator).
+ *
+ * `canEdit` (org staff on a project that is not archived) shows adding, editing, approving and creating a framework,
+ * and the results chain's controls; everyone else (donor viewers, an archived project) reads.
  */
 export function IndicatorTable({ projectId, canEdit = true }: { projectId: string; canEdit?: boolean }) {
   const queryClient = useQueryClient();
@@ -137,6 +198,8 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
 
   const lang = useUserLanguage();
   const { t } = useTranslation(undefined, { lng: lang });
+  const { role } = usePermissions();
+  const baseId = useId();
 
   const { data: framework, isLoading } = useQuery({
     queryKey: queryKeys.framework(projectId),
@@ -148,22 +211,57 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.framework(projectId) });
 
+  const approveMutation = useMutation({
+    mutationFn: (ind: Indicator) => api.approveIndicator(ind.id),
+    onSuccess: (_saved, ind) => {
+      toast.success(t("indicatorTable.toast.approved"));
+      void invalidateFrameworkData(queryClient, { projectId, frameworkId: ind.frameworkId });
+    },
+    onError: (err) => {
+      toast.error(t("indicatorTable.toast.approveFailed"), { description: errorMessage(err, "") || undefined });
+    },
+  });
+  const approvingId = approveMutation.isPending ? approveMutation.variables?.id : undefined;
+
   // This screen is English apart from the translated parts, so those carry their own lang (WCAG 3.1.2).
-  const editButton = (ind: Indicator) => (
-    <IndicatorDialog
-      mode="edit"
-      projectId={projectId}
-      frameworkId={ind.frameworkId}
-      indicator={ind}
-      frameworkStatus={framework?.status}
-      resultNodes={resultNodes}
-      trigger={
-        <Button variant="ghost" size="sm" className="h-7 px-2" lang={lang} aria-label={t("indicatorTable.editIndicator", { name: ind.indicatorText })}>
-          <Pencil aria-hidden="true" className="h-3 w-3 me-1" /> {t("indicatorTable.edit")}
-        </Button>
-      }
-    />
-  );
+  const editButton = (ind: Indicator) => {
+    const name = rowActionName(t, "indicatorTable.editIndicator", indicatorNameFor(ind, lang), lang, `${baseId}-edit-${ind.id}`);
+    return (
+      <IndicatorDialog
+        mode="edit"
+        projectId={projectId}
+        frameworkId={ind.frameworkId}
+        indicator={ind}
+        resultNodes={resultNodes}
+        trigger={
+          <Button variant="ghost" size="sm" className={ROW_ACTION_CLASS} lang={lang} {...name.props}>
+            <Pencil aria-hidden="true" className="h-3 w-3 me-1" /> {t("indicatorTable.edit")}
+            {name.label}
+          </Button>
+        }
+      />
+    );
+  };
+  const approveButton = (ind: Indicator) => {
+    const name = rowActionName(t, "indicatorTable.approveIndicator", indicatorNameFor(ind, lang), lang, `${baseId}-approve-${ind.id}`);
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        className={ROW_ACTION_CLASS}
+        lang={lang}
+        {...name.props}
+        aria-disabled={approvingId ? "true" : undefined}
+        onClick={() => { if (!approveMutation.isPending) approveMutation.mutate(ind); }}
+      >
+        {approvingId === ind.id
+          ? <Loader2 aria-hidden="true" className="h-3 w-3 me-1 animate-spin" />
+          : <BadgeCheck aria-hidden="true" className="h-3 w-3 me-1" />}
+        {t("indicatorTable.approve")}
+        {name.label}
+      </Button>
+    );
+  };
 
   if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="h-5 w-5 animate-spin" /></div>;
 
@@ -204,7 +302,8 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
             </Badge>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        {/* Wraps at 375 px, so "New Framework" is never clipped. */}
+        <div className="flex flex-wrap items-center gap-2">
           {/* View toggle */}
           <div className="flex rounded-lg border overflow-hidden">
             <button onClick={() => setView("table")} className={`px-3 py-1.5 text-xs font-medium ${view === "table" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Table</button>
@@ -216,7 +315,6 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
                 mode="create"
                 projectId={projectId}
                 frameworkId={framework.id}
-                frameworkStatus={framework.status}
                 resultNodes={resultNodes}
                 trigger={
                   <Button variant="outline" size="sm" lang={lang}>
@@ -230,17 +328,26 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
         </div>
       </div>
 
-      <ResultsChainPanel projectId={projectId} frameworkId={framework.id} readOnly={!canEdit} />
+      <ResultsChainPanel projectId={projectId} frameworkId={framework.id} indicators={indicators} readOnly={!canEdit} />
 
       {/* Table View */}
       {view === "table" && (
-        <div className="card-surface overflow-x-auto">
-          <table className="w-full text-sm">
+        // Focusable so keyboard users can scroll it sideways on a phone too, also when it holds no buttons (donor
+        // viewers, archived projects: WCAG 2.1.1, axe scrollable-region-focusable).
+        <div
+          role="region"
+          aria-label={t("indicatorTable.regionLabel")}
+          tabIndex={0}
+          className="card-surface overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {/* A minimum width: on a phone the table scrolls sideways instead of squeezing the indicator names. */}
+          <table className="w-full min-w-[56rem] text-sm">
             <thead className="bg-secondary/50">
               <tr>
                 <th className="w-8" />
                 <th className="text-left px-3 py-3 font-medium text-muted-foreground">Indicator</th>
                 <th className="text-left px-3 py-3 font-medium text-muted-foreground">Level</th>
+                <th className="text-start px-3 py-3 font-medium text-muted-foreground" lang={lang}>{t("indicatorTable.source")}</th>
                 <th className="text-left px-3 py-3 font-medium text-muted-foreground">Method</th>
                 <th className="text-left px-3 py-3 font-medium text-muted-foreground hidden md:table-cell">Target</th>
                 <th className="text-left px-3 py-3 font-medium text-muted-foreground">Current</th>
@@ -260,16 +367,14 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
                       {expanded === ind.id ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
                     </td>
                     <td className="px-3 py-3 font-medium max-w-[250px]">
-                      <div>{lang === "ar" && ind.indicatorTextAr ? <span lang="ar" dir="rtl">{ind.indicatorTextAr}</span> : ind.indicatorText}</div>
+                      <div><IndicatorName indicator={ind} lang={lang} /></div>
                       {ind.result && (
                         <span className="mt-0.5 inline-block font-mono text-[10px] text-muted-foreground" title={ind.result.text} dir="ltr">
                           {ind.result.code}
                         </span>
                       )}
-                      {needsAiReviewLabel(ind.provenance, ind.isApproved, framework.status) && (
-                        <span lang={lang} className="mt-0.5 flex items-center gap-1 text-[10px] font-medium text-foreground">
-                          <Sparkles aria-hidden="true" className="h-3 w-3" /> {t("ai.suggestedLabel")}
-                        </span>
+                      {needsAiReviewLabel(ind.provenance, ind.isApproved) && (
+                        <div lang={lang} className="mt-1"><AiSuggestedLabel lang={lang} /></div>
                       )}
                       {ind.responsibility && (
                         <span className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -278,6 +383,7 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
                       )}
                     </td>
                     <td className="px-3 py-3"><LevelBadge level={ind.level} /></td>
+                    <td className="px-3 py-3 min-w-[8rem]"><SourceCell indicator={ind} lang={lang} /></td>
                     <td className="px-3 py-3"><MethodPill method={ind.dataCollectionMethod} size="xs" /></td>
                     <td className="px-3 py-3 text-muted-foreground hidden md:table-cell">{ind.targetValue || "N/A"}</td>
                     <td className="px-3 py-3 font-medium">{ind.currentValue || "N/A"}</td>
@@ -287,13 +393,17 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
                     <td className="px-3 py-3 text-center"><StatusDot status={ind.status} showLabel /></td>
                     {canEdit && (
                       <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                        {editButton(ind)}
+                        {/* 8 px apart on phones, so a slip of the finger on Edit does not approve. */}
+                        <div className="flex flex-col items-center gap-2 sm:gap-1">
+                          {editButton(ind)}
+                          {canApproveIndicator(role, ind, framework.status) && approveButton(ind)}
+                        </div>
                       </td>
                     )}
                   </tr>
                   {expanded === ind.id && (
                     <tr key={`${ind.id}-detail`}>
-                      <td colSpan={canEdit ? 9 : 8} className="px-6 py-4 bg-secondary/20">
+                      <td colSpan={canEdit ? 10 : 9} className="px-6 py-4 bg-secondary/20">
                         <div className="grid md:grid-cols-2 gap-4">
                           <div className="space-y-2">
                             {ind.aiRationale && (
@@ -363,8 +473,11 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <LevelBadge level={ind.level} />
-                      <span className="text-sm font-medium truncate">{ind.indicatorText}</span>
+                      <span className="text-sm font-medium truncate"><IndicatorName indicator={ind} lang={lang} /></span>
                     </div>
+                    {needsAiReviewLabel(ind.provenance, ind.isApproved) && (
+                      <div lang={lang} className="mb-1"><AiSuggestedLabel lang={lang} /></div>
+                    )}
                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
                       <StatusDot status={ind.status} showLabel />
                       {ind.responsibility && <span className="flex items-center gap-1"><Users className="h-3 w-3" />{ind.responsibility}</span>}

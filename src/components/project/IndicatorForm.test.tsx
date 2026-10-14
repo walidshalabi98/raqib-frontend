@@ -6,15 +6,17 @@ import { IndicatorDialog } from "@/components/project/IndicatorDialog";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { api } from "@/services/api";
 import { toast } from "sonner";
-import { renderWithClient } from "@/test/utils";
+import { createTestQueryClient, nameWithIsolatedPart, renderWithClient } from "@/test/utils";
+import { queryKeys } from "@/lib/queryKeys";
 import { ApiError } from "@/lib/apiError";
-import { makeIndicator, sampleResultNodes } from "@/test/fixtures";
-import type { AuthUser } from "@/types/api";
+import { makeIndicator, makeKpiSuggestion, makeKpiWarning, sampleResultNodes } from "@/test/fixtures";
+import type { AcceptKpiSuggestionResponse, AuthUser } from "@/types/api";
 
 vi.mock("@/services/api", () => ({
   api: {
     addIndicatorToFramework: vi.fn(),
     updateIndicator: vi.fn(),
+    acceptKpiSuggestion: vi.fn(),
     getLibraryEntry: vi.fn(),
     getUser: vi.fn(() => null),
     getToken: vi.fn(() => "token"),
@@ -332,10 +334,10 @@ describe("IndicatorForm", { timeout: 20_000 }, () => {
     expect(screen.queryByText(/^Pending baseline\./)).not.toBeInTheDocument();
   });
 
-  it("labels AI-suggested indicators until they or their framework are approved", () => {
+  it("labels AI-made indicators until the indicator itself is approved (D18)", () => {
     const aiIndicator = makeIndicator({ provenance: "ai_suggested", isApproved: false, aiModel: "claude-sonnet-5-5", promptVersion: "kpi-1.0" });
-    const { unmount } = renderForm({ mode: "edit", indicator: aiIndicator, frameworkStatus: "client_review" });
-    expect(screen.getAllByText("AI suggested — review before approval").length).toBeGreaterThan(0);
+    const { unmount } = renderForm({ mode: "edit", indicator: aiIndicator });
+    expect(screen.getAllByRole("note")[0]).toHaveTextContent("AI suggested — review before approval");
     expect(screen.getByLabelText("Provenance")).toHaveValue("AI suggested");
     expect(screen.getByLabelText("Provenance")).toHaveAttribute("readonly");
     expect(screen.getByLabelText("AI model")).toHaveValue("claude-sonnet-5-5 · kpi-1.0");
@@ -345,12 +347,8 @@ describe("IndicatorForm", { timeout: 20_000 }, () => {
     expect(screen.queryByText("AI suggested — review before approval")).not.toBeInTheDocument();
     approved.unmount();
 
-    // Approving the framework approves its indicators, even before isApproved reaches the client.
-    for (const frameworkStatus of ["approved", "active"] as const) {
-      const view = renderForm({ mode: "edit", indicator: aiIndicator, frameworkStatus });
-      expect(screen.queryByText("AI suggested — review before approval"), frameworkStatus).not.toBeInTheDocument();
-      view.unmount();
-    }
+    renderForm({ mode: "edit", indicator: makeIndicator({ provenance: "manual", isApproved: false }) });
+    expect(screen.queryByText("AI suggested — review before approval")).not.toBeInTheDocument();
   });
 
   it("sets the level from the linked result and locks it while linked", async () => {
@@ -467,6 +465,220 @@ describe("IndicatorForm", { timeout: 20_000 }, () => {
   });
 });
 
+describe("IndicatorForm accept mode (Edit & accept, design 9.5)", { timeout: 20_000 }, () => {
+  const suggestion = makeKpiSuggestion();
+
+  function acceptResponse(overrides: Partial<AcceptKpiSuggestionResponse> = {}): AcceptKpiSuggestionResponse {
+    return {
+      indicator: makeIndicator({ id: "ind-9", provenance: "ai_suggested", resultId: "o1" }),
+      suggestion: { ...suggestion, status: "accepted", indicatorId: "ind-9" },
+      warnings: [],
+      ...overrides,
+    };
+  }
+
+  function renderAccept(props: Partial<Parameters<typeof IndicatorForm>[0]> = {}) {
+    const onAccepted = vi.fn();
+    const view = renderForm({ mode: "accept", suggestion, onAccepted, ...props });
+    return { ...view, onAccepted };
+  }
+
+  beforeEach(() => {
+    vi.mocked(api.getLibraryEntry).mockResolvedValue({ id: "FS-01", name: "Food Consumption Score", nameAr: null } as never);
+  });
+
+  it("starts from the suggestion's draft, with the level locked to the result and Raqib's provenance", async () => {
+    renderAccept();
+    expect(screen.getAllByRole("note")[0]).toHaveTextContent("AI suggested — review before approval");
+    expect(screen.getByLabelText(/^Indicator name \(English\)/)).toHaveValue(suggestion.draft.indicatorText);
+    expect(screen.getByLabelText("Indicator name (Arabic)")).toHaveValue(suggestion.draft.indicatorTextAr);
+    expect(screen.getByLabelText("Result it measures")).toHaveValue("o1");
+    // An accepted suggestion always measures a result: no "not linked" option.
+    expect(within(screen.getByLabelText("Result it measures")).getAllByRole("option")).toHaveLength(nodes.length);
+    expect(screen.getByLabelText("Level")).toHaveValue("outcome");
+    expect(screen.getByLabelText("Level")).toBeDisabled();
+    expect(screen.getByLabelText("Level")).toHaveAccessibleDescription(exactly("Set by the result the indicator measures. Choose another result to change it."));
+    expect(screen.getByLabelText("Baseline value")).toHaveValue("42%");
+    expect(screen.getByLabelText("Final target")).toHaveValue("");
+    expect(screen.getByLabelText("Library ID")).toHaveValue("FS-01");
+    const provenance = screen.getByLabelText("Provenance");
+    expect(provenance).toHaveValue("AI suggested");
+    expect(provenance).toHaveAttribute("readonly");
+    expect(provenance).toHaveAccessibleDescription(exactly("Set by Raqib when you accept: AI suggested."));
+    expect(screen.getByLabelText("AI model")).toHaveValue("claude-sonnet-5-5 · kpi-v2");
+    expect(screen.getByRole("button", { name: "Accept indicator" })).toBeInTheDocument();
+    // The library lookup confirms where the indicator comes from.
+    expect(await screen.findByText("In the library: Food Consumption Score", {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(api.getLibraryEntry).toHaveBeenCalledWith("FS-01");
+  });
+
+  it("hides the fields that are not part of a suggestion, and says they are set after accepting (TQ-02)", () => {
+    renderAccept();
+    for (const label of ["Status", "Current value", "Actual start", "Actual end"]) {
+      expect(screen.queryByLabelText(new RegExp(`^${label}\\*?$`)), label).not.toBeInTheDocument();
+    }
+    expect(screen.queryByText("Milestones")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add milestone/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Status, current value, actual dates and milestones are set after you accept the indicator.")).toBeInTheDocument();
+    // The draft's own timeline stays editable.
+    expect(screen.getByLabelText("Planned start")).toBeInTheDocument();
+    expect(screen.getByLabelText("Planned end")).toBeInTheDocument();
+  });
+
+  it("accepts an unchanged draft without edits and shows the accepted toast", async () => {
+    const user = userEvent.setup({ delay: null });
+    const response = acceptResponse();
+    vi.mocked(api.acceptKpiSuggestion).mockResolvedValue(response);
+    const { onAccepted, onSaved } = renderAccept();
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    await waitFor(() => expect(api.acceptKpiSuggestion).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.acceptKpiSuggestion).mock.calls[0]).toEqual(["s-1", undefined]);
+    await waitFor(() => expect(onAccepted).toHaveBeenCalledWith(response));
+    expect(toast.success).toHaveBeenCalledWith("Indicator added to O1");
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(api.addIndicatorToFramework).not.toHaveBeenCalled();
+  });
+
+  it("sends only the fields the user changed", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.acceptKpiSuggestion).mockResolvedValue(acceptResponse());
+    const { onAccepted } = renderAccept();
+    await user.clear(screen.getByLabelText("Baseline value"));
+    await user.type(screen.getByLabelText("Final target"), "60%");
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    await waitFor(() => expect(api.acceptKpiSuggestion).toHaveBeenCalledWith("s-1", { baselineValue: null, targetValue: "60%" }));
+    await waitFor(() => expect(onAccepted).toHaveBeenCalled());
+  });
+
+  it("says when the result now has more indicators than the donor allows", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.acceptKpiSuggestion).mockResolvedValue(acceptResponse({
+      warnings: [makeKpiWarning("donor_cap_exceeded", { params: { code: "O1", count: 4, cap: 3 } })],
+    }));
+    renderAccept();
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
+      "Indicator added to O1. O1 now has 4 indicators; the donor allows 3. Remove one.",
+    ));
+  });
+
+  it("blocks on every problem, as on create", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderAccept();
+    await user.clear(screen.getByLabelText(/^Indicator name \(English\)/));
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("1 problem");
+    expect(api.acceptKpiSuggestion).not.toHaveBeenCalled();
+  });
+
+  it("closes with a toast when the suggestion was already decided (409)", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.acceptKpiSuggestion).mockRejectedValue(new ApiError("Suggestion already decided", 409, "already_decided"));
+    const { onAccepted, onCancel } = renderAccept();
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    await waitFor(() => expect(onCancel).toHaveBeenCalled());
+    expect(toast.error).toHaveBeenCalledWith("Someone already decided on this suggestion. The list was refreshed.");
+    expect(onAccepted).not.toHaveBeenCalled();
+  });
+
+  it("closes with the archived message when the project was archived meanwhile (409 project_archived)", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.acceptKpiSuggestion).mockRejectedValue(new ApiError("This project is archived", 409, "project_archived"));
+    const { onAccepted, onCancel } = renderAccept();
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    // The page turns read-only and the dialog closes with it, so the toast says why.
+    await waitFor(() => expect(onCancel).toHaveBeenCalled());
+    expect(toast.error).toHaveBeenCalledWith("This project is archived, so it is read-only. An organisation admin can restore it to make changes.");
+    expect(onAccepted).not.toHaveBeenCalled();
+  });
+
+  it("closes with the duplicate message when the result already has the indicator (409 duplicate)", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.acceptKpiSuggestion).mockRejectedValue(new ApiError("Duplicate", 409, "duplicate"));
+    const { onCancel } = renderAccept();
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    await waitFor(() => expect(onCancel).toHaveBeenCalled());
+    expect(toast.error).toHaveBeenCalledWith("This result already has this indicator. The list was refreshed.");
+  });
+
+  it("keeps the form and the edits after a write conflict (409 conflict), so Accept works again", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.acceptKpiSuggestion)
+      .mockRejectedValueOnce(new ApiError("Write conflict", 409, "conflict"))
+      .mockResolvedValueOnce(acceptResponse());
+    const { onAccepted, onCancel } = renderAccept();
+    await user.type(screen.getByLabelText("Final target"), "60%");
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    expect(await screen.findByText("This change clashed with another change made at the same time, so nothing was saved. Try again.")).toBeInTheDocument();
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Final target")).toHaveValue("60%");
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    await waitFor(() => expect(onAccepted).toHaveBeenCalled());
+    expect(vi.mocked(api.acceptKpiSuggestion).mock.calls[1]).toEqual(["s-1", { targetValue: "60%" }]);
+  });
+
+  it("offers to replace the indicator an alternative stands for, and sends replaceSource only when ticked (SPEC-8)", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.acceptKpiSuggestion)
+      .mockRejectedValueOnce(new ApiError("Has data", 409, "source_has_data"))
+      .mockResolvedValueOnce(acceptResponse({ replacedIndicatorId: null }));
+    const client = createTestQueryClient();
+    client.setQueryDefaults(queryKeys.framework("p-1"), { gcTime: Infinity });
+    client.setQueryData(queryKeys.framework("p-1"), {
+      id: "fw-1", projectId: "p-1", version: 1, status: "draft", name: null, aiModelUsed: null, generatedAt: "2026-10-01T00:00:00.000Z",
+      approvedAt: null, approvedBy: null, resultNodes: nodes,
+      indicators: [makeIndicator({ id: "ind-old", indicatorText: "Number of food baskets distributed" })],
+    });
+    const onAccepted = vi.fn();
+    const onCancel = vi.fn();
+    renderWithClient(
+      <IndicatorForm mode="accept" projectId="p-1" frameworkId="fw-1" resultNodes={nodes} lang="en"
+        suggestion={{ ...suggestion, alternativeOfIndicatorId: "ind-old" }} onAccepted={onAccepted} onSaved={vi.fn()} onCancel={onCancel} />,
+      client,
+    );
+    const replace = screen.getByRole("checkbox", { name: nameWithIsolatedPart("Replace “Number of food baskets distributed” with this indicator") });
+    expect(replace).not.toBeChecked();
+    expect(replace).toHaveAccessibleDescription("The old indicator is removed from the framework. This works only while it has no data or linked services.");
+    await user.click(replace);
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    await waitFor(() => expect(api.acceptKpiSuggestion).toHaveBeenCalledWith("s-1", undefined, { replaceSource: true }));
+    // The old indicator holds data: the form stays with the reason, so the officer can untick Replace and accept.
+    expect(await screen.findByText(/already has data or linked services/)).toBeInTheDocument();
+    expect(onCancel).not.toHaveBeenCalled();
+    await user.click(replace);
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    await waitFor(() => expect(onAccepted).toHaveBeenCalled());
+    expect(vi.mocked(api.acceptKpiSuggestion).mock.calls[1]).toEqual(["s-1", undefined]);
+  });
+
+  it("shows no replace choice for a suggestion that is not an alternative to an existing indicator", () => {
+    renderAccept();
+    expect(screen.queryByRole("checkbox", { name: /^Replace/ })).not.toBeInTheDocument();
+  });
+
+  it("shows a refused field (400 not_editable) in the UI language, not the server's English", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.acceptKpiSuggestion).mockRejectedValue(
+      new ApiError("Invalid request: these fields cannot be changed when accepting a suggestion: status.", 400, "not_editable", { keys: ["status"] }),
+    );
+    const { onCancel } = renderAccept();
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    expect(await screen.findByText(/cannot be set while accepting a suggestion/)).toBeInTheDocument();
+    expect(screen.queryByText(/Invalid request/)).not.toBeInTheDocument();
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it("keeps the form open with the server's message for other failures", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.acceptKpiSuggestion).mockRejectedValue(new ApiError("endDate must not be before startDate", 400));
+    const { onCancel } = renderAccept();
+    await user.click(screen.getByRole("button", { name: "Accept indicator" }));
+    expect(await screen.findByText("endDate must not be before startDate")).toBeInTheDocument();
+    expect(toast.error).toHaveBeenCalledWith("Could not accept the suggestion");
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+});
+
 describe("IndicatorDialog", () => {
   it("switches between English and Arabic with the toggle", async () => {
     const user = userEvent.setup({ delay: null });
@@ -505,5 +717,33 @@ describe("IndicatorDialog", () => {
     expect(dialog).toHaveAttribute("dir", "rtl");
     expect(within(dialog).getByRole("heading", { name: "تعديل المؤشر" })).toBeInTheDocument();
     expect(within(dialog).getByLabelText("اسم المؤشر (بالعربية)")).toHaveValue("نسبة الأسر ذات درجة استهلاك غذائي مقبولة");
+  });
+  it("edits and accepts a suggestion in the panel's language, then closes", async () => {
+    const user = userEvent.setup({ delay: null });
+    const suggestion = makeKpiSuggestion();
+    vi.mocked(api.getLibraryEntry).mockResolvedValue({ id: "FS-01", name: "Food Consumption Score", nameAr: "درجة الاستهلاك الغذائي" } as never);
+    const response: AcceptKpiSuggestionResponse = {
+      indicator: makeIndicator({ id: "ind-9", provenance: "ai_suggested" }),
+      suggestion: { ...suggestion, status: "accepted" },
+      warnings: [],
+    };
+    vi.mocked(api.acceptKpiSuggestion).mockResolvedValue(response);
+    const onAccepted = vi.fn();
+    const onCloseAutoFocus = vi.fn();
+    renderWithClient(
+      <IndicatorDialog mode="accept" projectId="p-1" frameworkId="fw-1" resultNodes={nodes} suggestion={suggestion}
+        initialLang="ar" onAccepted={onAccepted} onCloseAutoFocus={onCloseAutoFocus}
+        trigger={<button type="button">Open</button>} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("dir", "rtl");
+    expect(within(dialog).getByRole("heading", { name: "تعديل الاقتراح وقبوله" })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "English" }));
+    expect(within(dialog).getByRole("heading", { name: "Edit and accept the suggestion" })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Accept indicator" }));
+    await waitFor(() => expect(onAccepted).toHaveBeenCalledWith(response));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(onCloseAutoFocus).toHaveBeenCalled();
   });
 });

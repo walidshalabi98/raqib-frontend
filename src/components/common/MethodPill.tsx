@@ -10,10 +10,11 @@ const methodStyles: Record<Method, string> = {
   secondary_data: "bg-secondary text-secondary-foreground border-border",
 };
 
-export function MethodPill({ method, size = "sm" }: { method: Method; size?: "sm" | "xs" }) {
+/** `label`: a translated method name (e.g. t(`method.${method}`)); without it the English short label is shown. */
+export function MethodPill({ method, size = "sm", label }: { method: Method; size?: "sm" | "xs"; label?: string }) {
   return (
     <span className={`inline-flex items-center border rounded-md font-medium ${methodStyles[method] ?? methodStyles.secondary_data} ${size === "xs" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"}`}>
-      {METHOD_LABELS[method] ?? method}
+      {label ?? METHOD_LABELS[method] ?? method}
     </span>
   );
 }

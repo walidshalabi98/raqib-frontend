@@ -204,6 +204,58 @@ describe("useDeleteProject", () => {
     expect(list.result.current.isFetching).toBe(true);
   });
 
+  it("drops the project's KPI Assistant caches too: suggestions, its runs, and its frameworks' results chain and quality check", async () => {
+    vi.mocked(api.deleteProject).mockResolvedValue({ deleted: true, removed: {} as never });
+    const { client, wrapper } = setup();
+    seed(client);
+    client.setQueryData(queryKeys.project("p-1"), { ...detail, frameworks: [{ id: "fw-old" }] });
+    client.setQueryData(queryKeys.framework("p-1"), { id: "fw-1" });
+    const run = (id: string, projectId = "p-1") => ({ id, projectId, frameworkId: "fw-1" });
+    client.setQueryData(queryKeys.kpiSuggestions("p-1"), {
+      frameworkId: "fw-1",
+      suggestions: [{ id: "s-1", runId: "run-1" }],
+      activeRuns: [run("run-2")],
+      latestFrameworkRun: run("run-3"),
+    });
+    client.setQueryData(queryKeys.kpiSuggestionRun("run-1"), { run: run("run-1"), suggestions: [] });
+    client.setQueryData(queryKeys.kpiSuggestionRun("run-2"), { run: run("run-2"), suggestions: [] });
+    // A run polled on its own, no longer in the list.
+    client.setQueryData(queryKeys.kpiSuggestionRun("run-4"), { run: run("run-4"), suggestions: [] });
+    client.setQueryData(queryKeys.frameworkResults("fw-1"), []);
+    client.setQueryData(queryKeys.frameworkResults("fw-old"), []);
+    client.setQueryData(queryKeys.indicatorQuality("fw-1"), []);
+    // Another project's KPI data stays.
+    client.setQueryData(queryKeys.kpiSuggestions("p-2"), { frameworkId: "fw-9", suggestions: [], activeRuns: [], latestFrameworkRun: null });
+    client.setQueryData(queryKeys.kpiSuggestionRun("run-9"), { run: run("run-9", "p-2"), suggestions: [] });
+    client.setQueryData(queryKeys.frameworkResults("fw-9"), []);
+    client.setQueryData(queryKeys.kpiAssistantStatus, { aiConfigured: true });
+
+    const { result } = renderHook(() => useDeleteProject(), { wrapper });
+    await act(() => result.current.mutateAsync({ projectId: "p-1", confirmName: "Gaza water trucking" }));
+
+    for (const key of [
+      queryKeys.kpiSuggestions("p-1"),
+      queryKeys.kpiSuggestionRun("run-1"),
+      queryKeys.kpiSuggestionRun("run-2"),
+      queryKeys.kpiSuggestionRun("run-4"),
+      queryKeys.frameworkResults("fw-1"),
+      queryKeys.frameworkResults("fw-old"),
+      queryKeys.indicatorQuality("fw-1"),
+      queryKeys.framework("p-1"),
+    ]) {
+      expect(client.getQueryState(key), JSON.stringify(key)).toBeUndefined();
+    }
+    expect(client.getQueryData(queryKeys.kpiSuggestions("p-2"))).toBeDefined();
+    expect(client.getQueryData(queryKeys.kpiSuggestionRun("run-9"))).toBeDefined();
+    expect(client.getQueryData(queryKeys.frameworkResults("fw-9"))).toBeDefined();
+    // Not project data: whether the AI is configured.
+    expect(client.getQueryData(queryKeys.kpiAssistantStatus)).toEqual({ aiConfigured: true });
+  });
+
+  it("lists the KPI suggestions among the project's own cache keys", () => {
+    expect(projectScopedKeys("p-1")).toContainEqual(queryKeys.kpiSuggestions("p-1"));
+  });
+
   it("keeps everything when the server refuses (wrong name)", async () => {
     vi.mocked(api.deleteProject).mockRejectedValue(new ApiError("Mismatch", 400, "confirm_name_mismatch"));
     const { client, wrapper } = setup();

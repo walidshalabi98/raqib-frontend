@@ -12,6 +12,9 @@ import { errorMessage } from "@/lib/utils";
 import { dirFor } from "@/i18n";
 import { useUserLanguage } from "@/i18n/useUserLanguage";
 import { PersonalDataWarning } from "@/components/common/PersonalDataWarning";
+import { usePermissions } from "@/hooks/usePermissions";
+import { useRequestKpiSuggestions } from "@/hooks/useKpiSuggestions";
+import { kpiErrorText, requestErrorCode, requestErrorContext, runErrorCode } from "@/lib/kpiSuggestions";
 import { RequireWritableProject } from "@/components/RequireWritableProject";
 import type { Indicator } from "@/types/api";
 
@@ -34,10 +37,22 @@ const METHOD_LABELS: Record<string, string> = {
   secondary_data: "Secondary Data",
 };
 
+/** The project page opened on its M&E framework tab, where alternatives appear under their result. */
+function frameworkTabPath(projectId: string): string {
+  return `/projects/${projectId}?tab=me-framework`;
+}
+
 /**
- * The AI framework wizard. It changes the project (uploads, framework generation, approvals), so an archived
- * project sends the user back to its read-only page instead (RequireWritableProject). Kept here, in the page's
- * own chunk, so the guard's translations stay out of the main bundle.
+ * The AI framework wizard (AI KPI Builder): upload documents, generate a framework, review it and approve it. It
+ * changes the project (uploads, framework generation, approvals, KPI alternatives), so an archived project sends the
+ * user back to its read-only page instead (RequireWritableProject). Kept here, in the page's own chunk, so the guard's
+ * translations stay out of the main bundle.
+ *
+ * "Request alternative" on a generated indicator asks the KPI Assistant for alternatives
+ * (knowledge/kpi-assistant-spec.md §A2 trigger 3; design section 9.5): a toast says they are being prepared, with a
+ * link to the framework tab; errors are translated by code (503 not configured, 422 not suggestable or nothing to
+ * suggest, 409 stale, already running or project archived, 429 rate limit or budget). Roles without the assistant
+ * (donor viewers) do not get the button.
  */
 export default function AIWizard() {
   return (
@@ -55,6 +70,11 @@ function AIWizardSteps() {
   const { t } = useTranslation(undefined, { lng: lang });
   const warningId = useId();
   const [currentStep, setCurrentStep] = useState(0);
+  const canAskAlternatives = usePermissions().can("ai.run");
+  const alternatives = useRequestKpiSuggestions(projectId ?? "");
+  const requestingId = alternatives.isPending && alternatives.variables && "indicatorId" in alternatives.variables
+    ? alternatives.variables.indicatorId
+    : null;
 
   // Step 0: Upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -204,14 +224,26 @@ function AIWizardSteps() {
     }
   };
 
-  // Request alternative for indicator
-  const handleAlternative = async (indId: string) => {
-    try {
-      await api.requestAlternative(indId);
-      toast.success("Alternative requested — check back shortly");
-    } catch (err) {
-      toast.error(errorMessage(err, "Failed to request alternative"));
-    }
+  // Alternatives to an indicator through the KPI Assistant; they appear under the indicator's result on the framework tab.
+  const handleAlternative = (indId: string) => {
+    if (!projectId || alternatives.isPending) return;
+    alternatives.mutate({ scope: "alternatives", indicatorId: indId }, {
+      onSuccess: (response) => {
+        // A 200 can carry a run that failed (e.g. the AI refused).
+        const failed = runErrorCode(response.run);
+        if (failed) {
+          toast.error(kpiErrorText(t, failed));
+          return;
+        }
+        const openFramework = { label: t("kpi.toast.openFramework"), onClick: () => navigate(frameworkTabPath(projectId)) };
+        // 202: still running. 200: finished, with its alternatives on the framework tab, or none found.
+        if (response.run.status === "running") toast.success(t("kpi.toast.alternativesQueued"), { action: openFramework });
+        else if (response.run.suggestionCount > 0) {
+          toast.success(t("kpi.toast.alternativesReady", { count: response.run.suggestionCount }), { action: openFramework });
+        } else toast.info(t("kpi.alternatives.none"));
+      },
+      onError: (err) => toast.error(kpiErrorText(t, requestErrorCode(err), requestErrorContext(err))),
+    });
   };
 
   // Approve entire framework
@@ -395,9 +427,21 @@ function AIWizardSteps() {
                         >
                           <Check className="h-3.5 w-3.5" />
                         </button>
-                        <button onClick={() => handleAlternative(ind.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground" title="Request alternative">
-                          <RefreshCw className="h-3.5 w-3.5" />
-                        </button>
+                        {canAskAlternatives && (
+                          <button
+                            type="button"
+                            onClick={() => handleAlternative(ind.id)}
+                            className={`p-1.5 rounded hover:bg-secondary text-muted-foreground ${requestingId ? "cursor-not-allowed opacity-60" : ""}`}
+                            lang={lang}
+                            title={t("kpi.actions.alternativesNamed", { name: ind.indicatorText })}
+                            aria-label={t("kpi.actions.alternativesNamed", { name: ind.indicatorText })}
+                            aria-disabled={requestingId ? "true" : undefined}
+                          >
+                            {requestingId === ind.id
+                              ? <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+                              : <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />}
+                          </button>
+                        )}
                         <button onClick={() => handleDeleteIndicator(ind.id)} className="p-1.5 rounded hover:bg-danger/10 text-danger" title="Remove">
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>

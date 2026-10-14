@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACCEPT_EDITABLE_KEYS,
+  ACCEPT_HIDDEN_FIELDS,
+  acceptEdits,
   blockingErrors,
   buildCreatePayload,
+  canApproveIndicator,
   buildUpdatePayload,
   changedFields,
   checkGroupKey,
@@ -9,6 +13,7 @@ import {
   formValuesToPayload,
   indicatorFormWarnings,
   indicatorToFormValues,
+  inputToFormValues,
   isFrameworkApproved,
   isPercentUnit,
   needsAiReviewLabel,
@@ -18,7 +23,7 @@ import {
   validateIndicatorForm,
 } from "@/lib/indicatorForm";
 import { isIsoDate, toDateInput } from "@/lib/dates";
-import { makeIndicator } from "@/test/fixtures";
+import { makeIndicator, makeIndicatorDraft } from "@/test/fixtures";
 
 describe("dates", () => {
   it("accepts only real calendar dates", () => {
@@ -216,21 +221,196 @@ describe("payloads", () => {
   });
 });
 
-describe("needsAiReviewLabel", () => {
-  it("labels AI-made indicators until they or their framework are approved", () => {
-    expect(needsAiReviewLabel("ai_suggested", false, "draft")).toBe(true);
-    expect(needsAiReviewLabel("ai_generated", false, "client_review")).toBe(true);
-    expect(needsAiReviewLabel("ai_generated", false, undefined)).toBe(true);
-    expect(needsAiReviewLabel("ai_suggested", true, "draft")).toBe(false);
-    expect(needsAiReviewLabel("ai_generated", false, "approved")).toBe(false);
-    expect(needsAiReviewLabel("ai_suggested", false, "active")).toBe(false);
-    expect(needsAiReviewLabel("manual", false, "draft")).toBe(false);
-    expect(needsAiReviewLabel("library", false, "draft")).toBe(false);
+describe("needsAiReviewLabel (design D18)", () => {
+  it("labels AI-made indicators until the indicator itself is approved", () => {
+    expect(needsAiReviewLabel("ai_suggested", false)).toBe(true);
+    expect(needsAiReviewLabel("ai_generated", false)).toBe(true);
+    expect(needsAiReviewLabel("ai_generated", undefined)).toBe(true);
+    expect(needsAiReviewLabel("ai_suggested", null)).toBe(true);
+    expect(needsAiReviewLabel("ai_suggested", true)).toBe(false);
+    expect(needsAiReviewLabel("ai_generated", true)).toBe(false);
   });
 
-  it("treats approved and active frameworks as approved", () => {
+  it("never labels indicators people made or took from the library", () => {
+    for (const provenance of ["manual", "library", "imported", null, undefined] as const) {
+      expect(needsAiReviewLabel(provenance, false)).toBe(false);
+    }
+  });
+
+  it("treats approved and active frameworks as approved (when indicator approval is offered)", () => {
     expect(["draft", "expert_review", "client_review", "approved", "active"].map((s) => isFrameworkApproved(s as never)))
       .toEqual([false, false, false, true, true]);
     expect(isFrameworkApproved(null)).toBe(false);
+  });
+});
+
+describe("canApproveIndicator (design D18, 9.5)", () => {
+  it("offers approval to org and platform admins for unapproved indicators of an approved or active framework", () => {
+    for (const role of ["org_admin", "platform_admin"]) {
+      expect(canApproveIndicator(role, { isApproved: false }, "approved")).toBe(true);
+      expect(canApproveIndicator(role, { isApproved: false }, "active")).toBe(true);
+    }
+  });
+
+  it("not to other roles, not twice, and not for manual or library indicators before the framework is approved", () => {
+    for (const role of ["me_officer", "donor_viewer", "", null, undefined]) {
+      expect(canApproveIndicator(role, { isApproved: false }, "approved")).toBe(false);
+      expect(canApproveIndicator(role, { isApproved: false, provenance: "ai_suggested" }, "draft")).toBe(false);
+    }
+    expect(canApproveIndicator("org_admin", { isApproved: true }, "approved")).toBe(false);
+    expect(canApproveIndicator("org_admin", { isApproved: true, provenance: "ai_suggested" }, "draft")).toBe(false);
+    for (const status of ["draft", "expert_review", "client_review", null, undefined] as const) {
+      expect(canApproveIndicator("org_admin", { isApproved: false }, status)).toBe(false);
+      expect(canApproveIndicator("org_admin", { isApproved: false, provenance: "manual" }, status)).toBe(false);
+      expect(canApproveIndicator("org_admin", { isApproved: false, provenance: "library" }, status)).toBe(false);
+    }
+  });
+
+  it("offers approval of an AI-made indicator whatever the framework status (review UX-03: no framework approval on the tab)", () => {
+    for (const status of ["draft", "expert_review", "client_review", "approved", "active", null] as const) {
+      expect(canApproveIndicator("org_admin", { isApproved: false, provenance: "ai_suggested" }, status)).toBe(true);
+      expect(canApproveIndicator("platform_admin", { isApproved: false, provenance: "ai_generated" }, status)).toBe(true);
+    }
+  });
+});
+
+describe("inputToFormValues", () => {
+  it("fills the form from a KPI suggestion's draft", () => {
+    const values = inputToFormValues(makeIndicatorDraft());
+    expect(values).toMatchObject({
+      indicatorText: "% of target households with an acceptable Food Consumption Score",
+      indicatorTextAr: "نسبة الأسر المستهدفة ذات درجة استهلاك غذائي مقبولة",
+      level: "outcome",
+      resultId: "o1",
+      status: "not_started",
+      unit: "percent",
+      direction: "increase",
+      numerator: "Target households with an acceptable FCS",
+      denominator: "Surveyed target households",
+      formula: "numerator ÷ denominator × 100",
+      disaggregation: ["sex_of_household_head", "location"],
+      dataCollectionMethod: "hh_survey",
+      frequency: "biannual",
+      baselineValue: "42%",
+      baselineDate: "",
+      targetValue: "",
+      intermediateTargets: [],
+      libraryId: "FS-01",
+      standardReferenceCode: "WFP CRF FCS",
+      startDate: "2026-01-01",
+      endDate: "2027-06-30",
+      milestones: [],
+    });
+  });
+
+  it("uses the form defaults for missing fields and turns date-times into dates", () => {
+    expect(inputToFormValues({})).toEqual(emptyIndicatorForm());
+    const values = inputToFormValues({
+      indicatorText: "Trainees",
+      baselineDate: "2026-02-15T00:00:00.000Z",
+      intermediateTargets: [{ date: "2026-12-31T00:00:00.000Z", value: "48%" }],
+      milestones: [{ label: "Survey", date: null }],
+      calculation: null,
+      disaggregation: null,
+    });
+    expect(values.baselineDate).toBe("2026-02-15");
+    expect(values.intermediateTargets).toEqual([{ date: "2026-12-31", value: "48%" }]);
+    expect(values.milestones).toEqual([{ label: "Survey", date: "", completed: false }]);
+    expect(values.numerator).toBe("");
+    expect(values.disaggregation).toEqual([]);
+  });
+
+  it("gives the same values for a stored indicator as indicatorToFormValues", () => {
+    const indicator = makeIndicator();
+    expect(inputToFormValues(indicator)).toEqual(indicatorToFormValues(indicator));
+  });
+});
+
+describe("acceptEdits (design 8.1, 9.5)", () => {
+  it("sends no edits when the draft is accepted unchanged", () => {
+    const draft = makeIndicatorDraft();
+    expect(acceptEdits(draft, inputToFormValues(draft))).toBeUndefined();
+  });
+
+  it("does not count formatting as an edit", () => {
+    const draft = makeIndicatorDraft({ libraryId: "fs-01", startDate: "2026-01-01T00:00:00.000Z" });
+    const values = { ...inputToFormValues(draft), libraryId: " FS-01 ", indicatorText: `  ${draft.indicatorText} ` };
+    expect(acceptEdits(draft, values)).toBeUndefined();
+  });
+
+  it("sends only the changed fields, with cleared fields as null", () => {
+    const draft = makeIndicatorDraft();
+    const values = {
+      ...inputToFormValues(draft),
+      indicatorText: "% of target households with an acceptable FCS",
+      baselineValue: "",
+      targetValue: "60%",
+      endDate: "2027-12-31",
+      disaggregation: ["sex_of_household_head", "location", "disability"],
+    };
+    expect(acceptEdits(draft, values)).toEqual({
+      indicatorText: "% of target households with an acceptable FCS",
+      baselineValue: null,
+      targetValue: "60%",
+      endDate: "2027-12-31",
+      disaggregation: ["sex_of_household_head", "location", "disability"],
+    });
+  });
+
+  it("sends the whole calculation when one part changes, and never a provenance", () => {
+    const draft = makeIndicatorDraft();
+    const edits = acceptEdits(draft, { ...inputToFormValues(draft), denominator: "All surveyed households" });
+    expect(edits).toEqual({
+      calculation: {
+        numerator: "Target households with an acceptable FCS",
+        denominator: "All surveyed households",
+        formula: "numerator ÷ denominator × 100",
+        rounding: "To be confirmed by the M&E officer",
+      },
+    });
+    expect(edits).not.toHaveProperty("provenance");
+  });
+
+  it("sends a new result with its level", () => {
+    const draft = makeIndicatorDraft();
+    expect(acceptEdits(draft, { ...inputToFormValues(draft), resultId: "o2" })).toEqual({ resultId: "o2" });
+    expect(acceptEdits(draft, { ...inputToFormValues(draft), resultId: "o11", level: "output" }))
+      .toEqual({ resultId: "o11", level: "output" });
+  });
+
+  it("never sends a field the server would refuse with 400 not_editable: status, current value, actual dates, milestones (TQ-02)", () => {
+    const draft = makeIndicatorDraft();
+    const values = {
+      ...inputToFormValues(draft),
+      status: "at_risk" as const,
+      currentValue: "12",
+      actualStartDate: "2026-02-01",
+      actualEndDate: "2026-03-01",
+      milestones: [{ label: "Baseline survey done", date: "2026-05-01", completed: false }],
+    };
+    expect(acceptEdits(draft, values)).toBeUndefined();
+    const edits = acceptEdits(draft, { ...values, targetValue: "60%" });
+    expect(edits).toEqual({ targetValue: "60%" });
+    // Only ACCEPT_EDITABLE_KEYS go out: the server answers 400 not_editable to any other key (not a silent drop).
+    expect(Object.keys(edits ?? {}).every((key) => (ACCEPT_EDITABLE_KEYS as readonly string[]).includes(key))).toBe(true);
+  });
+});
+
+describe("the accept contract (mirror of the backend DRAFT_EDITABLE_KEYS, TQ-02)", () => {
+  it("lists the keys the backend accepts as edits (raqib-backend src/services/kpi/draft.ts EDITABLE_KEYS)", () => {
+    expect([...ACCEPT_EDITABLE_KEYS].sort()).toEqual([
+      "aiRationale", "assumptions", "baselineDate", "baselineMethod", "baselineValue", "calculation", "dataCollectionMethod",
+      "definition", "direction", "disaggregation", "endDate", "frequency", "indicatorText", "indicatorTextAr",
+      "intermediateTargets", "level", "libraryId", "meansOfVerification", "responsibility", "resultId",
+      "standardReferenceCode", "startDate", "targetJustification", "targetValue", "unit",
+    ]);
+  });
+
+  it("every field the accept form shows is a key the backend keeps; the others are hidden in accept mode", () => {
+    const formKeys = Object.keys(formValuesToPayload(emptyIndicatorForm()));
+    const hidden = new Set<string>(ACCEPT_HIDDEN_FIELDS);
+    const editable = new Set<string>(ACCEPT_EDITABLE_KEYS);
+    expect(formKeys.filter((key) => !hidden.has(key) && !editable.has(key))).toEqual([]);
+    expect([...hidden].every((key) => formKeys.includes(key) && !editable.has(key))).toBe(true);
   });
 });

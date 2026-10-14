@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/services/api";
 import { ApiError, httpStatusOf } from "@/lib/apiError";
+import { onProjectArchivedRefusal } from "@/lib/projectEvents";
 
 function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -76,6 +77,119 @@ describe("api client: exports and role refusals", () => {
   it("passes a 403 from any JSON endpoint on with its status", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(403, { message: "Insufficient permissions" })));
     expect(httpStatusOf(await api.exportBeneficiaries("p-1").catch((e: unknown) => e))).toBe(403);
+  });
+});
+
+describe("api client: an expired access token", () => {
+  const ACCEPT_PATH = /\/kpi-suggestions\/s-1\/accept$/;
+
+  /** An unsigned JWT-shaped token (the client only decodes it to read the role). */
+  function token(id: string): string {
+    const payload = btoa(JSON.stringify({ id, role: "me_officer", organizationId: "org-1" }))
+      .replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+    return `h.${payload}.s`;
+  }
+
+  /** fetch that answers the refresh with `refresh` and the requests in turn with `answers`. */
+  function stubFetch(refresh: Response, answers: Response[]) {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/auth/refresh")) return refresh;
+      const next = answers.shift();
+      if (!next) throw new Error("unexpected request");
+      return next;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  beforeEach(() => {
+    api.clearToken();
+    localStorage.setItem("raqib_token", token("u-1"));
+    localStorage.setItem("raqib_refresh_token", "refresh-1");
+    localStorage.setItem("raqib_user", JSON.stringify({ id: "u-1", email: "o@example.org", name: "Officer", role: "me_officer", organizationId: "org-1" }));
+  });
+
+  it("after a refresh, passes a 409 of the repeated request on with its code and details, and keeps the session", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse(200, { accessToken: token("u-1"), refreshToken: "refresh-2" }),
+      [
+        jsonResponse(401, { message: "Token expired" }),
+        jsonResponse(409, { message: "Already decided", code: "already_decided", details: { status: "accepted" } }),
+      ],
+    );
+    const err = await api.acceptKpiSuggestion("s-1").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect(httpStatusOf(err)).toBe(409);
+    expect((err as ApiError).code).toBe("already_decided");
+    expect((err as ApiError).details).toEqual({ status: "accepted" });
+    const calls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(calls.filter((u) => ACCEPT_PATH.test(u))).toHaveLength(2);
+    expect(calls.filter((u) => u.endsWith("/auth/refresh"))).toHaveLength(1);
+    // Still signed in, with the renewed tokens.
+    expect(localStorage.getItem("raqib_refresh_token")).toBe("refresh-2");
+    expect(localStorage.getItem("raqib_token")).toBe(token("u-1"));
+    expect(api.getUser()?.id).toBe("u-1");
+  });
+
+  it("after a refresh, returns the repeated request's answer", async () => {
+    stubFetch(
+      jsonResponse(200, { accessToken: token("u-1"), refreshToken: "refresh-2" }),
+      [jsonResponse(401, {}), jsonResponse(200, { id: "ok" })],
+    );
+    await expect(api.getLibraryEntry("FS-01")).resolves.toEqual({ id: "ok" });
+  });
+
+  it("signs out when the repeated request is refused with 401 again", async () => {
+    stubFetch(
+      jsonResponse(200, { accessToken: token("u-1"), refreshToken: "refresh-2" }),
+      [jsonResponse(401, { message: "Token expired" }), jsonResponse(401, { message: "Invalid token" })],
+    );
+    const err = await api.acceptKpiSuggestion("s-1").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect(httpStatusOf(err)).toBe(401);
+    expect((err as ApiError).code).toBeUndefined();
+    expect(localStorage.getItem("raqib_token")).toBeNull();
+    expect(localStorage.getItem("raqib_refresh_token")).toBeNull();
+    expect(localStorage.getItem("raqib_user")).toBeNull();
+  });
+
+  it("shares one refresh between requests that expire together", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse(200, { accessToken: token("u-1"), refreshToken: "refresh-2" }),
+      [jsonResponse(401, {}), jsonResponse(401, {}), jsonResponse(200, { id: "a" }), jsonResponse(200, { id: "b" })],
+    );
+    const answers = await Promise.all([api.getLibraryEntry("FS-01"), api.getLibraryEntry("FS-02")]);
+
+    expect(answers).toEqual([{ id: "a" }, { id: "b" }]);
+    expect(fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.endsWith("/auth/refresh"))).toHaveLength(1);
+    expect(localStorage.getItem("raqib_refresh_token")).toBe("refresh-2");
+  });
+
+  it("signs out without repeating the request when the refresh fails", async () => {
+    const fetchMock = stubFetch(jsonResponse(401, { message: "Invalid refresh token" }), [jsonResponse(401, {})]);
+    const err = await api.acceptKpiSuggestion("s-1").catch((e: unknown) => e);
+
+    expect(httpStatusOf(err)).toBe(401);
+    expect(fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => ACCEPT_PATH.test(u))).toHaveLength(1);
+    expect(localStorage.getItem("raqib_token")).toBeNull();
+  });
+});
+
+describe("api client: accepting a KPI suggestion (SPEC-8)", () => {
+  it("sends the edits and replaceSource only when given", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(201, { indicator: { id: "i" }, suggestion: { id: "s-1" }, warnings: [], replacedIndicatorId: "ind-old" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const body = (index: number) => JSON.parse(String((fetchMock.mock.calls[index] as unknown as [string, RequestInit])[1].body));
+
+    await api.acceptKpiSuggestion("s-1");
+    await api.acceptKpiSuggestion("s-1", { targetValue: "60%" } as never);
+    const replaced = await api.acceptKpiSuggestion("s-1", undefined, { replaceSource: true });
+    await api.acceptKpiSuggestion("s-1", undefined, { replaceSource: false });
+
+    expect([body(0), body(1), body(2), body(3)]).toEqual([{}, { edits: { targetValue: "60%" } }, { replaceSource: true }, {}]);
+    expect(replaced.replacedIndicatorId).toBe("ind-old");
   });
 });
 
@@ -230,5 +344,44 @@ describe("api client: an expired access token (SR-7, SR-9)", () => {
     );
     expect(httpStatusOf(await api.getUsers().catch((e: unknown) => e))).toBe(401);
     expect(api.getToken()).toBeNull();
+  });
+});
+
+describe("api client: KPI Assistant calls on an archived project", () => {
+  it("passes a 409 project_archived on with its code and tells the open project page (it turns read-only)", async () => {
+    const heard = vi.fn();
+    const stop = onProjectArchivedRefusal(heard);
+    try {
+      const refusal = () => jsonResponse(409, { message: "This project is archived. Restore it to make changes.", code: "project_archived" });
+      vi.stubGlobal("fetch", vi.fn(async () => refusal()));
+      const calls: Array<() => Promise<unknown>> = [
+        () => api.requestKpiSuggestions("p-1", { scope: "result", resultId: "o1" }),
+        () => api.acceptKpiSuggestion("s-1"),
+        () => api.rejectKpiSuggestion("s-1", { reason: "wording" }),
+        () => api.requestAlternative("i-1"),
+      ];
+      for (const call of calls) {
+        const err = await call().catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(ApiError);
+        expect(httpStatusOf(err)).toBe(409);
+        expect((err as ApiError).code).toBe("project_archived");
+      }
+      expect(heard).toHaveBeenCalledTimes(calls.length);
+    } finally {
+      stop();
+    }
+  });
+
+  it("does not announce other 409s (a suggestion decided elsewhere)", async () => {
+    const heard = vi.fn();
+    const stop = onProjectArchivedRefusal(heard);
+    try {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(409, { message: "Already decided", code: "already_decided", details: { status: "accepted" } })));
+      const err = await api.acceptKpiSuggestion("s-1").catch((e: unknown) => e);
+      expect((err as ApiError).details).toEqual({ status: "accepted" });
+      expect(heard).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
   });
 });

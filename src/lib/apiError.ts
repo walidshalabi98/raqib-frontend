@@ -2,19 +2,24 @@ import type { TFunction } from "i18next";
 
 /**
  * An error from the Raqib API with the HTTP status of the response
- * (undefined when no response arrived, e.g. offline). Kept outside
- * src/services/api.ts so screens can read the status without importing the client.
+ * (undefined when no response arrived, e.g. offline), and the machine-readable
+ * `code` and `details` the API sends with some errors (e.g. 409 `run_in_progress`
+ * with `details.runId`). Kept outside src/services/api.ts so screens can read
+ * the status without importing the client.
  */
 export class ApiError extends Error {
   readonly status?: number;
   /** The API's stable reason code, when it sends one (e.g. `password_too_short`), for screens to explain in EN/AR. */
   readonly code?: string;
+  /** Extra machine-readable data some errors carry (e.g. 409 `run_in_progress` with `runId`). */
+  readonly details?: Record<string, unknown>;
 
-  constructor(message: string, status?: number, code?: string) {
+  constructor(message: string, status?: number, code?: string, details?: Record<string, unknown>) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
