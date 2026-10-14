@@ -482,6 +482,7 @@
     "empty": "No indicators yet. Add one above.",
     "emptyReadOnly": "No indicators yet.",
     "source": "Source",
+    "regionLabel": "Indicators",
     "approve": "Approve",
     "approveIndicator": "Approve {{name}}",
     "toast": {

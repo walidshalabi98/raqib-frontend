@@ -506,6 +506,7 @@
     "empty": "لا توجد مؤشرات بعد. أضف مؤشرًا من الأعلى.",
     "emptyReadOnly": "لا توجد مؤشرات بعد.",
     "source": "المصدر",
+    "regionLabel": "المؤشرات",
     "approve": "اعتماد",
     "approveIndicator": "اعتماد {{name}}",
     "toast": {

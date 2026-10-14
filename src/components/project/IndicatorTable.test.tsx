@@ -244,6 +244,14 @@ describe("IndicatorTable read-only (donor viewers, archived projects)", () => {
     expect(screen.queryByRole("button", { name: /^Suggest KPIs/ })).not.toBeInTheDocument();
   });
 
+  it("keeps the table's sideways scroll reachable by keyboard when it holds no buttons", async () => {
+    vi.mocked(api.getFramework).mockResolvedValue(framework("approved"));
+    renderWithClient(<IndicatorTable projectId="p-1" canEdit={false} />);
+    const region = await screen.findByRole("region", { name: "Indicators" });
+    expect(region).toHaveAttribute("tabindex", "0");
+    expect(within(region).getByRole("table")).toBeInTheDocument();
+  });
+
   it("offers no framework creation when there is no framework", async () => {
     vi.mocked(api.getFramework).mockResolvedValue(null);
     renderWithClient(<IndicatorTable projectId="p-1" canEdit={false} />);

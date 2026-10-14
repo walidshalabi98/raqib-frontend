@@ -273,7 +273,14 @@ export function IndicatorTable({ projectId, canEdit = true }: { projectId: strin
 
       {/* Table View */}
       {view === "table" && (
-        <div className="card-surface overflow-x-auto">
+        // Focusable so keyboard users can scroll it sideways on a phone too, also when it holds no buttons (donor
+        // viewers, archived projects: WCAG 2.1.1, axe scrollable-region-focusable).
+        <div
+          role="region"
+          aria-label={t("indicatorTable.regionLabel")}
+          tabIndex={0}
+          className="card-surface overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           {/* A minimum width: on a phone the table scrolls sideways instead of squeezing the indicator names. */}
           <table className="w-full min-w-[56rem] text-sm">
             <thead className="bg-secondary/50">
