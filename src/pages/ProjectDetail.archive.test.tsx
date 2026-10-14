@@ -261,6 +261,9 @@ describe("An archived project", () => {
     expect(banner).toHaveTextContent("يمكن لمسؤول المؤسسة استعادته.");
     expect(screen.getByRole("tablist", { name: "أقسام المشروع" })).toHaveAttribute("lang", "ar");
     expect(screen.getByRole("tab", { name: "التقارير" })).toBeInTheDocument();
+    // The same word as the Documents screens' heading (وثائق المشروع).
+    expect(screen.getByRole("tab", { name: "الوثائق" })).toBeInTheDocument();
+    expect(screen.getByText("مؤرشف: لا يُظهر المخطط الزمني أي مرحلة حالية ما دام المشروع مؤرشفًا.").closest("p")).toHaveAttribute("dir", "rtl");
   });
 
   it("is restored from the banner: the server's status shows, focus moves to the heading", async () => {
@@ -295,6 +298,81 @@ describe("An archived project", () => {
     emitProjectArchivedRefusal();
     expect(await screen.findByText(ARCHIVED_BANNER)).toBeInTheDocument();
     expect(api.getProject).toHaveBeenCalledTimes(2);
+  });
+
+  it("takes focus when the refused form closed with the write controls and left focus nowhere", async () => {
+    signInAs("me_officer");
+    vi.mocked(api.getProject).mockResolvedValueOnce(project()).mockResolvedValue(archived());
+    await renderPage();
+    // The refused dialog and its opener are gone: focus fell back to the page body.
+    expect(document.activeElement).toBe(document.body);
+    emitProjectArchivedRefusal();
+    const banner = (await screen.findByText(ARCHIVED_BANNER)).closest("[role=status]") as HTMLElement;
+    await waitFor(() => expect(banner).toHaveFocus());
+  });
+
+  it("leaves focus in a dialog that stays open (it shows the reason and keeps focus)", async () => {
+    signInAs("me_officer");
+    vi.mocked(api.getProject).mockResolvedValueOnce(project()).mockResolvedValue(archived());
+    await renderPage();
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const inside = document.createElement("button");
+    dialog.append(inside);
+    document.body.append(dialog);
+    inside.focus();
+    emitProjectArchivedRefusal();
+    await screen.findByText(ARCHIVED_BANNER);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(inside).toHaveFocus();
+    dialog.remove();
+  });
+
+  it("moves no focus when the project turns out not to be archived", async () => {
+    signInAs("me_officer");
+    vi.mocked(api.getProject).mockResolvedValue(project());
+    await renderPage();
+    emitProjectArchivedRefusal();
+    await waitFor(() => expect(api.getProject).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByText(ARCHIVED_BANNER)).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("shows no stage on the timeline: archiving can end a project at any stage", async () => {
+    signInAs("donor_viewer");
+    vi.mocked(api.getProject).mockResolvedValue(archived());
+    renderWithClient(
+      <AuthProvider>
+        <MemoryRouter initialEntries={["/projects/p-1"]}>
+          <Routes><Route path="/projects/:id" element={<ProjectDetail />} /></Routes>
+        </MemoryRouter>
+      </AuthProvider>,
+    );
+    const timeline = await screen.findByRole("region", { name: "Project Timeline" });
+    expect(timeline.querySelector("[aria-current]")).toBeNull();
+    // No stage is shown as done (green) either.
+    expect(timeline.querySelector(".bg-success")).toBeNull();
+    const marker = screen.getByText("Archived: the timeline shows no current stage while the project is archived.");
+    expect(marker.closest("p")?.querySelector("svg")).not.toBeNull();
+  });
+});
+
+describe("The project timeline", () => {
+  it("marks the current stage as the current step (not by colour alone)", async () => {
+    signInAs("me_officer");
+    vi.mocked(api.getProject).mockResolvedValue(project({ status: "active" }));
+    await renderPage();
+    const timeline = screen.getByRole("region", { name: "Project Timeline" });
+    expect(timeline.querySelector("[aria-current=step]")).toHaveTextContent("Implementation");
+    expect(screen.queryByText(/the timeline shows no current stage/)).not.toBeInTheDocument();
+  });
+
+  it("still shows a completed project as complete", async () => {
+    signInAs("me_officer");
+    vi.mocked(api.getProject).mockResolvedValue(project({ status: "completed" }));
+    await renderPage();
+    expect(screen.getByRole("region", { name: "Project Timeline" }).querySelector("[aria-current=step]")).toHaveTextContent("Complete");
   });
 });
 

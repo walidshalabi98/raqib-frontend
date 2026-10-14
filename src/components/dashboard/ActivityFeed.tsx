@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { AlertCircle, FileText, ClipboardCheck, Database, BarChart3, UserCheck, FolderPlus, Bell } from "lucide-react";
 
 const iconMap: Record<string, React.ElementType> = {
@@ -22,7 +23,7 @@ const iconColorMap: Record<string, string> = {
 
 export function ActivityFeed() {
   const { data: notifications = [] } = useQuery({
-    queryKey: ['notifications'],
+    queryKey: queryKeys.notifications,
     queryFn: () => api.getNotifications(),
   });
 

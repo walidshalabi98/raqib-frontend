@@ -9,6 +9,7 @@ import { useProjectAccess } from "@/hooks/useProjectAccess";
 import { invalidateProjectViews, useProject, useRestoreProject } from "@/hooks/useProjects";
 import { SECTOR_LABELS } from "@/lib/constants";
 import { onProjectArchivedRefusal } from "@/lib/projectEvents";
+import { queryKeys } from "@/lib/queryKeys";
 import { restoreErrorKey } from "@/lib/projectLifecycle";
 import { isolate } from "@/lib/reports";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -24,8 +25,9 @@ import DocumentManager from "@/components/project/DocumentManager";
 import RiskAlerts from "@/components/project/RiskAlerts";
 import ExportPanel from "@/components/project/ExportPanel";
 import { ArchivedProjectBanner, ProjectActions } from "@/components/project/ProjectActions";
-import { AlertCircle, ArrowLeft, Download, ClipboardCheck, BarChart3, Upload, Loader2, MapPin, Eye } from "lucide-react";
-import { lazy, Suspense, Component, useEffect, useId, type ReactNode } from "react";
+import type { ProjectDetail as ProjectDetailData } from "@/types/api";
+import { AlertCircle, Archive, ArrowLeft, Download, ClipboardCheck, BarChart3, Upload, Loader2, MapPin, Eye } from "lucide-react";
+import { lazy, Suspense, Component, useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 const PalestineMap = lazy(() => import("@/components/project/PalestineMap"));
 
@@ -55,9 +57,25 @@ const PROJECT_TABS = ["overview", "me-framework", "dashboard", "risks", "assessm
 type ProjectTab = (typeof PROJECT_TABS)[number];
 const isProjectTab = (value: string | null): value is ProjectTab => (PROJECT_TABS as readonly (string | null)[]).includes(value);
 
+/**
+ * The timeline stage a status stands for. None (-1) for an archived project: any project can be archived, from
+ * setup on, so the timeline must not claim that its baseline, midterm and endline took place.
+ */
 function getStageIndex(status: string): number {
-  const map: Record<string, number> = { setup: 0, framework_review: 1, active: 2, completed: 5, archived: 5 };
-  return map[status] || 0;
+  if (status === "archived") return -1;
+  const map: Record<string, number> = { setup: 0, framework_review: 1, active: 2, completed: 5 };
+  return map[status] ?? 0;
+}
+
+/**
+ * Moves focus to the archived banner after a change was refused because the project is archived, when the
+ * refused form or dialog closed with the page's write controls and left focus nowhere. Focus that is still
+ * somewhere (a dialog that stays open shows the reason itself and traps focus) stays there.
+ */
+function focusArchivedBanner(bannerId: string) {
+  const active = document.activeElement;
+  if (active && active !== document.body && active.isConnected) return;
+  document.getElementById(bannerId)?.focus();
 }
 
 export default function ProjectDetail() {
@@ -95,11 +113,28 @@ export default function ProjectDetail() {
   const restore = useRestoreProject();
 
   // A change the server refused because the project is archived (someone archived it elsewhere): fetch the
-  // project again, so the page shows the archived banner and turns read-only.
+  // project again, so the page shows the archived banner and turns read-only. The form or dialog that sent the
+  // change closes with the write controls (its opener too), so once the banner shows, focus moves to it: keyboard
+  // and screen reader users land on the reason instead of the top of the page (WCAG 2.4.3).
+  const [archivedRefusals, setArchivedRefusals] = useState(0);
+  const handledRefusals = useRef(0);
   useEffect(() => {
     if (!id) return;
-    return onProjectArchivedRefusal(() => void invalidateProjectViews(queryClient, id));
+    return onProjectArchivedRefusal(() => {
+      void invalidateProjectViews(queryClient, id).then(() => {
+        if (queryClient.getQueryData<ProjectDetailData>(queryKeys.project(id))?.status === "archived") {
+          setArchivedRefusals((count) => count + 1);
+        }
+      });
+    });
   }, [id, queryClient]);
+  useEffect(() => {
+    if (!access.archived || archivedRefusals === handledRefusals.current) return;
+    handledRefusals.current = archivedRefusals;
+    // After the closed dialog hands focus back: Radix does that in a timeout, to an opener that is gone by now.
+    const timer = window.setTimeout(() => focusArchivedBanner(archivedBannerId), 0);
+    return () => window.clearTimeout(timer);
+  }, [access.archived, archivedRefusals, archivedBannerId]);
 
   const restoreProject = () => {
     if (!project || restore.isPending) return;
@@ -224,11 +259,18 @@ export default function ProjectDetail() {
           {/* Timeline */}
           <div className="card-surface p-5">
             <h3 id={timelineHeadingId} className="text-sm font-semibold mb-4">Project Timeline</h3>
+            {/* Archived: no stage is current or done (text and icon, not colour alone). */}
+            {access.archived && (
+              <p lang={lang} dir={dirFor(lang)} className="mb-3 flex items-start gap-2 text-start text-sm text-muted-foreground">
+                <Archive aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{t("projectDetail.timelineArchived")}</span>
+              </p>
+            )}
             {/* Scrolls sideways on phones: focusable so keyboard users can scroll it too. */}
             <div role="region" aria-labelledby={timelineHeadingId} tabIndex={0} className="flex items-center overflow-x-auto pb-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               {timelineStages.map((stage, i) => (
                 <div key={stage} className="flex items-center">
-                  <div className="flex flex-col items-center">
+                  <div className="flex flex-col items-center" aria-current={i === currentStage ? "step" : undefined}>
                     <div className={`h-4 w-4 rounded-full border-2 ${
                       i < currentStage ? "bg-success border-success" : i === currentStage ? "bg-primary border-primary" : "bg-card border-muted-foreground/30"
                     }`} />

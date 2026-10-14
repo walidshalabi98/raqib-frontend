@@ -49,9 +49,42 @@ export function projectScopedKeys(projectId: string): ReadonlyArray<readonly unk
   ];
 }
 
-/** The project page shows the new status at once; the server's answer carries the project without its relations. */
+/** Newest first, the order of GET /api/projects (createdAt descending). */
+const newestFirst = (a: Project, b: Project) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+
+/**
+ * Moves a project whose status changed (archived or restored) from one cached list to the other, so the list a
+ * screen shows next is right at once: the Projects page (either view) and the project pickers of the Reports,
+ * Assessments and Beneficiaries pages render cached data first and only then fetch again. A list that is not
+ * cached is left alone (it loads when shown). The entry keeps what the list held (the server's answer carries
+ * the project without its counts).
+ */
+export function moveBetweenProjectLists(queryClient: QueryClient, updated: Project): void {
+  const archived = updated.status === "archived";
+  const from = queryKeys.projectList(!archived);
+  const to = queryKeys.projectList(archived);
+  const listed = queryClient.getQueryData<Project[]>(from)?.find((p) => p.id === updated.id)
+    ?? queryClient.getQueryData<Project[]>(to)?.find((p) => p.id === updated.id);
+  queryClient.setQueryData<Project[]>(from, (list) => list?.filter((p) => p.id !== updated.id));
+  queryClient.setQueryData<Project[]>(to, (list) =>
+    list ? [...list.filter((p) => p.id !== updated.id), { ...listed, ...updated }].sort(newestFirst) : list,
+  );
+}
+
+/** Takes a deleted project out of every cached list (active and archived) at once. */
+export function removeFromProjectLists(queryClient: QueryClient, projectId: string): void {
+  queryClient.setQueriesData<Project[]>({ queryKey: queryKeys.projects }, (list) =>
+    Array.isArray(list) ? list.filter((p) => p.id !== projectId) : list,
+  );
+}
+
+/**
+ * The project page shows the new status at once, and the project changes list; the server's answer carries the
+ * project without its relations.
+ */
 function showStatus(queryClient: QueryClient, updated: Project) {
   queryClient.setQueryData<ProjectDetail>(queryKeys.project(updated.id), (old) => (old ? { ...old, ...updated } : old));
+  moveBetweenProjectLists(queryClient, updated);
 }
 
 /**
@@ -87,8 +120,10 @@ export interface ProjectDeletion {
 
 /**
  * Deletes a project and everything in it for good (org admins and platform admins, after typing its name).
- * On success the project's cached responses are dropped and the lists and the organisation dashboard are
- * fetched again; the caller leaves the project page.
+ * On success, before the caller leaves the project page: the project's cached responses are dropped, it is
+ * taken out of the cached lists (the Projects page the caller goes to shows the cached list first, and must not
+ * offer a link to a project that is gone), and the lists, the organisation dashboard and the notifications (the
+ * server deleted the project's notifications too) are fetched again.
  */
 export function useDeleteProject() {
   const queryClient = useQueryClient();
@@ -99,6 +134,9 @@ export function useDeleteProject() {
         void queryClient.cancelQueries({ queryKey, exact: true });
         queryClient.removeQueries({ queryKey, exact: true });
       }
+      removeFromProjectLists(queryClient, projectId);
+      // The bell is always on screen: its refetch runs in the background (the caller does not wait for it).
+      void queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
         queryClient.invalidateQueries({ queryKey: queryKeys.orgOverview }),

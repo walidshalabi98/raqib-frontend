@@ -6,6 +6,8 @@ import { api } from "@/services/api";
 import { renderWithClient } from "@/test/utils";
 import { makeResultNode, sampleResultNodes } from "@/test/fixtures";
 import { queryKeys } from "@/lib/queryKeys";
+import { ApiError } from "@/lib/apiError";
+import { toast } from "sonner";
 
 vi.mock("@/services/api", () => ({
   api: {
@@ -109,6 +111,26 @@ describe("ResultsChainPanel", () => {
       textAr: "تحسين الوصول إلى المياه",
     }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("says why when a save is refused because the project was archived meanwhile, and stays generic otherwise", async () => {
+    const user = userEvent.setup({ delay: null });
+    const archived = "This project is archived, so it is read-only. An organisation admin can restore it to make changes.";
+    vi.mocked(api.createResultNode).mockRejectedValueOnce(new ApiError("This project is archived. Restore it to make changes.", 409, "project_archived"));
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Add a result under Goal" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/^Code/), "O3");
+    await user.type(within(dialog).getByLabelText(/^Result statement \(English\)/), "Improved access to water");
+    await user.click(within(dialog).getByRole("button", { name: "Save result" }));
+    // The page turns read-only and closes this dialog: the toast carries the reason, in the user's language.
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(archived));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(archived);
+
+    vi.mocked(toast.error).mockClear();
+    vi.mocked(api.createResultNode).mockRejectedValueOnce(new ApiError("Conflict", 409, "duplicate_code"));
+    await user.click(within(dialog).getByRole("button", { name: "Save result" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("We couldn't save the result."));
   });
 
   it("edits only the changed fields and locks the level of a result with children", async () => {

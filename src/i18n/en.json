@@ -152,6 +152,7 @@
     "archivedTitle": "This project is archived.",
     "archivedBody": "It is read-only: no one can add or change its data, and nothing in it was deleted.",
     "archivedAskAdmin": "An organisation admin can restore it.",
+    "timelineArchived": "Archived: the timeline shows no current stage while the project is archived.",
     "loadError": "We couldn't load this project. It may have been deleted, or the connection dropped."
   },
   "layout": {

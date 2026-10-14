@@ -23,6 +23,7 @@ import {
 } from "@/lib/resultForm";
 import type { FormError } from "@/lib/indicatorForm";
 import { cn, errorMessage } from "@/lib/utils";
+import { isProjectArchived } from "@/lib/apiError";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -354,7 +355,8 @@ function ResultNodeDialog({
     },
     onError: (err) => {
       setServerError(errorMessage(err, t("results.toast.saveFailed")));
-      toast.error(t("results.toast.saveFailed"));
+      // Archived elsewhere meanwhile: the page turns read-only and this dialog closes with it, so the toast says why.
+      toast.error(t(isProjectArchived(err) ? "errors.projectArchived" : "results.toast.saveFailed"));
     },
   });
 

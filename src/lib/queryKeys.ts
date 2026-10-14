@@ -19,4 +19,6 @@ export const queryKeys = {
   libraryEntry: (id: string) => ["indicator-library", "entry", id] as const,
   /** The organisation's members (Settings → Team members). */
   users: ["users"] as const,
+  /** GET /api/notifications: the bell in the top bar and the dashboard's activity feed share it. */
+  notifications: ["notifications"] as const,
 };
